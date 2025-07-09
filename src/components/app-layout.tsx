@@ -123,51 +123,53 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  if (!isClient) {
-    return (
-        <div className="flex min-h-screen w-full bg-muted/40" style={{'--sidebar-width-icon': '3rem'} as React.CSSProperties}>
-            <div className="hidden md:block">
-                <div className="flex h-full w-[var(--sidebar-width-icon)] flex-col border-r bg-sidebar p-2 text-sidebar-foreground">
-                    <div className="flex h-14 items-center justify-center">
-                        <Skeleton className="h-6 w-6" />
-                    </div>
-                    <div className="flex flex-col items-center gap-1 py-2">
-                        <Skeleton className="h-8 w-8" />
-                        <Skeleton className="h-8 w-8" />
-                        <Skeleton className="h-8 w-8" />
-                        <Skeleton className="h-8 w-8" />
-                    </div>
-                </div>
-            </div>
-            <div className="flex flex-1 flex-col">
-                <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-                    <Skeleton className="h-7 w-7" />
-                    <Skeleton className="h-6 w-36" />
-                </header>
-                <main className="flex-1 p-4 sm:px-6 sm:py-0">
-                    {children}
-                </main>
-            </div>
-        </div>
-    );
-  }
+  const content = (
+    <div className="flex min-h-screen w-full bg-muted/40">
+      <Sidebar collapsible="icon">
+          {sidebarContent}
+      </Sidebar>
+      <div className="flex flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+              <SidebarTrigger />
+              <h1 className="text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
+          </header>
+          <main className="flex-1 p-4 sm:px-6 sm:py-0">
+              {children}
+          </main>
+      </div>
+    </div>
+  );
 
+  const skeleton = (
+    <div className="flex min-h-screen w-full bg-muted/40" style={{'--sidebar-width-icon': '3rem'} as React.CSSProperties}>
+      <div className="hidden md:block">
+          <div className="flex h-full w-[var(--sidebar-width-icon)] flex-col border-r bg-sidebar p-2 text-sidebar-foreground">
+              <div className="flex h-14 items-center justify-center">
+                  <Skeleton className="h-6 w-6" />
+              </div>
+              <div className="flex flex-col items-center gap-1 py-2">
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
+              </div>
+          </div>
+      </div>
+      <div className="flex flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+              <Skeleton className="h-7 w-7" />
+              <Skeleton className="h-6 w-36" />
+          </header>
+          <main className="flex-1 p-4 sm:px-6 sm:py-0">
+              {children}
+          </main>
+      </div>
+    </div>
+  );
+  
   return (
     <SidebarProvider defaultOpen={false}>
-        <div className="flex min-h-screen w-full bg-muted/40">
-            <Sidebar collapsible="icon">
-                {sidebarContent}
-            </Sidebar>
-            <div className="flex flex-1 flex-col">
-                <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-                    <SidebarTrigger />
-                    <h1 className="text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
-                </header>
-                <main className="flex-1 p-4 sm:px-6 sm:py-0">
-                    {children}
-                </main>
-            </div>
-        </div>
+      {isClient ? content : skeleton}
     </SidebarProvider>
   );
 }
