@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -10,8 +13,29 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Package2 } from 'lucide-react';
+import { auth } from '@/lib/firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { useToast } from '@/hooks/use-toast';
 
 export default function CustomerLoginPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      router.push('/customer/inventory');
+    } catch (error) {
+      console.error("Error during Google login:", error);
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: "Could not log in with Google. Please try again.",
+      });
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="mx-auto max-w-sm">
@@ -50,7 +74,7 @@ export default function CustomerLoginPage() {
             <Button type="submit" className="w-full" asChild>
               <Link href="/customer/inventory">Login</Link>
             </Button>
-            <Button variant="outline" className="w-full">
+            <Button variant="outline" className="w-full" onClick={handleGoogleLogin}>
               Login with Google
             </Button>
           </div>
