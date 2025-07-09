@@ -24,59 +24,65 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
 
 const formSchema = z.object({
+  name: z.string().min(1, { message: "Name is required." }),
   email: z.string().email({ message: "Please enter a valid email." }),
-  password: z.string().min(1, { message: "Password is required." }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
 });
 
-export default function CustomerLoginPage() {
+export default function CustomerSignupPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      name: "",
       email: "",
       password: "",
     },
   });
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleSignup = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
       router.push('/customer/inventory');
     } catch (error) {
-      console.error("Error during Google login:", error);
+      console.error("Error during Google signup:", error);
       toast({
         variant: "destructive",
-        title: "Login Failed",
-        description: "Could not log in with Google. Please try again.",
+        title: "Sign Up Failed",
+        description: "Could not sign up with Google. Please try again.",
       });
     } finally {
-      setIsGoogleLoading(false);
+        setIsGoogleLoading(false);
     }
   };
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, values.email, values.password);
+      const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, {
+            displayName: values.name
+        });
+      }
       router.push('/customer/inventory');
     } catch (error: any) {
-      console.error("Error during email/password login:", error);
+      console.error("Error during email/password signup:", error);
       toast({
         variant: "destructive",
-        title: "Login Failed",
-        description: error.message || "Invalid email or password. Please try again.",
+        title: "Sign Up Failed",
+        description: error.message || "An unexpected error occurred. Please try again.",
       });
     } finally {
       setIsLoading(false);
@@ -90,14 +96,27 @@ export default function CustomerLoginPage() {
            <div className="flex items-center justify-center mb-4">
              <Package2 className="h-8 w-8 text-primary" />
            </div>
-          <CardTitle className="text-2xl text-center">Customer Login</CardTitle>
+          <CardTitle className="text-2xl text-center">Customer Sign Up</CardTitle>
           <CardDescription className="text-center">
-            Enter your credentials to access your account
+            Create your account to get started
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name="email"
@@ -116,15 +135,7 @@ export default function CustomerLoginPage() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                     <div className="flex items-center">
-                       <FormLabel>Password</FormLabel>
-                        <Link
-                          href="#"
-                          className="ml-auto inline-block text-sm underline"
-                        >
-                          Forgot your password?
-                        </Link>
-                      </div>
+                    <FormLabel>Password</FormLabel>
                     <FormControl>
                       <Input type="password" {...field} />
                     </FormControl>
@@ -134,7 +145,7 @@ export default function CustomerLoginPage() {
               />
               <Button type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Login
+                Create Account
               </Button>
             </form>
           </Form>
@@ -148,14 +159,14 @@ export default function CustomerLoginPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading || isGoogleLoading}>
+          <Button variant="outline" className="w-full" onClick={handleGoogleSignup} disabled={isLoading || isGoogleLoading}>
              {isGoogleLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Login with Google
+            Sign Up with Google
           </Button>
           <div className="mt-4 text-center text-sm">
-            Don&apos;t have an account?{" "}
-            <Link href="/customer/signup" className="underline">
-              Sign up
+            Already have an account?{" "}
+            <Link href="/customer/login" className="underline">
+              Login
             </Link>
           </div>
         </CardContent>

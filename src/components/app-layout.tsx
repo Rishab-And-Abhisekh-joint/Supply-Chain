@@ -3,8 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bot, LayoutDashboard, Truck, TrendingUp, Package2 } from "lucide-react";
+import type { User } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 import { Button } from "@/components/ui/button";
 import {
@@ -64,11 +67,28 @@ const pageTitles: { [key: string]: string } = {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isMounted, setIsMounted] = React.useState(false);
+  const [user, setUser] = React.useState<User | null>(null);
+  const [authInitialized, setAuthInitialized] = React.useState(false);
 
   React.useEffect(() => {
     setIsMounted(true);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthInitialized(true);
+    });
+    return () => unsubscribe();
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.push('/customer/login');
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
 
   const sidebarContent = (
     <>
@@ -101,33 +121,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter className="group-data-[collapsible=icon]:hidden">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="w-full justify-start gap-2 p-2" suppressHydrationWarning>
-              <Avatar className="h-8 w-8">
-                <AvatarImage src="https://placehold.co/100x100.png" alt="User" />
-                <AvatarFallback>U</AvatarFallback>
-              </Avatar>
-              <div className="text-left">
-                <p className="font-medium">User</p>
-                <p className="text-xs text-muted-foreground">user@example.com</p>
-              </div>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="right" align="start" className="w-56">
-            <DropdownMenuItem asChild>
-                <Link href="/dashboard">Admin Panel</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/customer/login">Customer Panel</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Settings</DropdownMenuItem>
-            <DropdownMenuItem>Support</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Logout</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {authInitialized ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="w-full justify-start gap-2 p-2" suppressHydrationWarning>
+                <Avatar className="h-8 w-8">
+                  {user?.photoURL && <AvatarImage src={user.photoURL} alt={user.displayName || 'User'} />}
+                  <AvatarFallback>{user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'U'}</AvatarFallback>
+                </Avatar>
+                <div className="text-left">
+                  <p className="font-medium truncate">{user?.displayName || 'User'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email || 'user@example.com'}</p>
+                </div>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="start" className="w-56">
+              <DropdownMenuItem asChild>
+                  <Link href="/dashboard">Admin Panel</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/customer/inventory">Customer Panel</Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>Settings</DropdownMenuItem>
+              <DropdownMenuItem>Support</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout}>Logout</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+            <div className="flex items-center gap-2 p-2">
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <div className="flex-1 space-y-1">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-3 w-32" />
+                </div>
+            </div>
+        )}
       </SidebarFooter>
     </>
   );
