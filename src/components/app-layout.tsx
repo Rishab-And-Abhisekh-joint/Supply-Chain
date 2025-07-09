@@ -20,7 +20,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -60,6 +59,7 @@ const pageTitles: { [key: string]: string } = {
   "/forecasting": "Demand Forecasting",
   "/operations": "Operations Analysis",
   "/logistics": "Logistics Optimization",
+  "/customer/inventory": "Customer Inventory",
 };
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -103,7 +103,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarFooter className="group-data-[collapsible=icon]:hidden">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="w-full justify-start gap-2 p-2">
+            <Button variant="ghost" className="w-full justify-start gap-2 p-2" suppressHydrationWarning>
               <Avatar className="h-8 w-8">
                 <AvatarImage src="https://placehold.co/100x100.png" alt="User" />
                 <AvatarFallback>U</AvatarFallback>
@@ -115,8 +115,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="start" className="w-56">
-            <DropdownMenuLabel>Admin Panel</DropdownMenuLabel>
-            <DropdownMenuLabel>Customer Panel</DropdownMenuLabel>
+            <DropdownMenuItem asChild>
+                <Link href="/dashboard">Admin Panel</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/customer/login">Customer Panel</Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem>Settings</DropdownMenuItem>
             <DropdownMenuItem>Support</DropdownMenuItem>
