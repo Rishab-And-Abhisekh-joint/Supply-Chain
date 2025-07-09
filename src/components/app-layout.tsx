@@ -2,19 +2,18 @@
 
 import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Bot, LayoutDashboard, Truck, TrendingUp, Package2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   SidebarProvider,
-  Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
-  SidebarTrigger,
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
 import {
@@ -27,6 +26,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ThemeToggle } from "@/components/theme-toggle";
+
+const Sidebar = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.Sidebar), { ssr: false });
+const SidebarTrigger = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.SidebarTrigger), { ssr: false });
+
 
 const navItems = [
   {
@@ -125,22 +129,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!isMounted) {
     return (
-      <div className="flex min-h-screen w-full bg-muted/40">
-        <div className="hidden md:flex h-full flex-col border-r bg-sidebar p-2 text-sidebar-foreground w-[3rem]">
-          <div className="flex h-14 items-center justify-center">
-            <Skeleton className="h-6 w-6" />
-          </div>
-          <div className="flex flex-col items-center gap-1 py-2">
-            <Skeleton className="h-8 w-8" />
-            <Skeleton className="h-8 w-8" />
-            <Skeleton className="h-8 w-8" />
-            <Skeleton className="h-8 w-8" />
-          </div>
+       <div style={{"--sidebar-width": "16rem", "--sidebar-width-icon": "3rem"}} className="group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar">
+        <div className="hidden md:block">
+            <div className="flex h-full w-[var(--sidebar-width-icon)] flex-col border-r bg-sidebar p-2 text-sidebar-foreground">
+                <div className="flex h-14 items-center justify-center">
+                    <Skeleton className="h-6 w-6" />
+                </div>
+                <div className="flex flex-col items-center gap-1 py-2">
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                </div>
+            </div>
         </div>
         <div className="flex flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-            <Skeleton className="h-7 w-7 md:hidden" />
-            <h1 className="text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
+              <Skeleton className="h-7 w-7 md:hidden" />
+              <h1 className="flex-1 text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
+              <Skeleton className="h-8 w-8 rounded-full" />
           </header>
           <main className="flex-1 p-4 sm:px-6 sm:py-0">{children}</main>
         </div>
@@ -157,7 +164,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex md:hidden">
               <SidebarTrigger />
             </div>
-            <h1 className="text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
+            <h1 className="flex-1 text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
+            <ThemeToggle />
           </header>
           <main className="flex-1 p-4 sm:px-6 sm:py-0">{children}</main>
         </div>
