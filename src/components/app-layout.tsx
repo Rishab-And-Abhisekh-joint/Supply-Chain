@@ -92,13 +92,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarContent = (
     <>
       <SidebarHeader>
-        <div className="flex h-14 items-center justify-between px-2">
-            <div className="flex items-center gap-2">
+        <div className="flex h-14 items-center px-2">
+            <SidebarTrigger
+                variant="ghost"
+                size="default"
+                className="hidden h-auto w-full justify-start gap-2 p-2 text-lg font-semibold hover:bg-sidebar-accent md:flex"
+            >
                 <Package2 className="h-6 w-6 text-primary" />
-                <span className="whitespace-nowrap text-lg font-semibold group-data-[collapsible=icon]:hidden">SupplyChainAI</span>
-            </div>
-            <div className="hidden md:flex">
-                <SidebarTrigger />
+                <span className="whitespace-nowrap group-data-[collapsible=icon]:hidden">SupplyChainAI</span>
+            </SidebarTrigger>
+            {/* For mobile view, the sidebar is a sheet. The header should just be the title. The trigger is in the main content area. */}
+            <div className="flex items-center gap-2 md:hidden">
+                <Package2 className="h-6 w-6 text-primary" />
+                <span className="whitespace-nowrap text-lg font-semibold">SupplyChainAI</span>
             </div>
         </div>
       </SidebarHeader>
@@ -155,7 +161,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </Sidebar>
         <div className="flex flex-1 flex-col">
             <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-                <div className="md:hidden">
+                <div className="flex md:hidden">
                     <SidebarTrigger />
                 </div>
                 <h1 className="text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
