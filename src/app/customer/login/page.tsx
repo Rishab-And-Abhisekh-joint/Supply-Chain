@@ -46,14 +46,6 @@ export default function CustomerLoginPage() {
     console.log("Firebase Auth Domain to add:", window.location.hostname);
   }, []);
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
-
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
