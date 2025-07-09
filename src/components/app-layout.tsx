@@ -16,7 +16,6 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarInset,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import {
@@ -118,14 +117,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <SidebarProvider defaultOpen>
-        <div className="flex min-h-screen w-full flex-col bg-muted/40">
-            <Sidebar>
+    <SidebarProvider defaultOpen={false}>
+        <div className="flex min-h-screen w-full bg-muted/40">
+            <Sidebar collapsible="icon">
                 {sidebarContent}
             </Sidebar>
-            <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
+            <div className="flex flex-1 flex-col">
                 <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-                    <SidebarTrigger className="sm:hidden" />
+                    <SidebarTrigger />
                     <h1 className="text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
                 </header>
                 <main className="flex-1 p-4 sm:px-6 sm:py-0">
