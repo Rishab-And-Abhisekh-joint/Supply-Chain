@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -141,7 +142,7 @@ const SidebarProvider = React.forwardRef<
               } as React.CSSProperties
             }
             className={cn(
-              "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
+              "group/sidebar-wrapper",
               className
             )}
             ref={ref}
@@ -221,6 +222,7 @@ const Sidebar = React.forwardRef<
         data-collapsible={state === "collapsed" ? collapsible : ""}
         data-variant={variant}
         data-side={side}
+        {...props}
       >
         {/* This is what handles the sidebar gap on desktop */}
         <div
@@ -245,7 +247,6 @@ const Sidebar = React.forwardRef<
               : "group-data-[collapsible=icon]:w-[--sidebar-width-icon] group-data-[side=left]:border-r group-data-[side=right]:border-l",
             className
           )}
-          {...props}
         >
           <div
             data-sidebar="sidebar"

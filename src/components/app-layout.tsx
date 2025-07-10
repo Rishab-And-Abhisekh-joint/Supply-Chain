@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
   SidebarProvider,
+  useSidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
@@ -60,15 +61,15 @@ const pageTitles: { [key: string]: string } = {
 const authRoutes = ['/customer/login', '/customer/signup'];
 const customerRoutes = ['/customer/inventory'];
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+function LayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
   const [user, setUser] = React.useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
+  const { setOpen } = useSidebar();
 
   React.useEffect(() => {
-    // This effect runs once to set up the auth state listener and handle redirect results.
     const processAuth = async () => {
       try {
         const result = await getRedirectResult(auth);
@@ -104,7 +105,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   React.useEffect(() => {
-    // This effect handles redirection logic whenever auth state or path changes.
     if (authLoading) return;
 
     const isAuthPage = authRoutes.includes(pathname);
@@ -116,7 +116,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push('/customer/login');
     }
   }, [authLoading, user, pathname, router]);
-
 
   const handleLogout = async () => {
     try {
@@ -137,7 +136,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isAuthPage && !user) {
+  if (isAuthPage) {
     return <>{children}</>;
   }
 
@@ -201,20 +200,38 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      <div className="flex min-h-screen w-full bg-muted/40">
-        <Sidebar collapsible="icon">{sidebarContent}</Sidebar>
-        <div className="flex flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-            <div className="flex md:hidden">
-              <SidebarTrigger />
-            </div>
-            <h1 className="flex-1 text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
-            <ThemeToggle />
-          </header>
-          <main className="flex-1 p-4 sm:px-6 sm:py-0">{children}</main>
-        </div>
+    <div 
+      className="flex min-h-screen w-full bg-muted/40"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <Sidebar collapsible="icon">{sidebarContent}</Sidebar>
+      <div className="flex flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+          <div className="flex md:hidden">
+            <SidebarTrigger />
+          </div>
+          <h1 className="flex-1 text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
+          <ThemeToggle />
+        </header>
+        <main className="flex-1 p-4 sm:px-6 sm:py-0">{children}</main>
       </div>
+    </div>
+  );
+}
+
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isAuthPage = authRoutes.includes(pathname);
+
+  if (isAuthPage) {
+    return <LayoutContent>{children}</LayoutContent>;
+  }
+
+  return (
+    <SidebarProvider defaultOpen={false}>
+      <LayoutContent>{children}</LayoutContent>
     </SidebarProvider>
   );
 }
