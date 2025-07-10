@@ -2,7 +2,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,9 +24,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile, getRedirectResult } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const formSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -36,10 +35,8 @@ const formSchema = z.object({
 });
 
 export default function CustomerSignupPage() {
-  const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -50,36 +47,13 @@ export default function CustomerSignupPage() {
     },
   });
 
-  useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          router.push('/customer/inventory');
-        } else {
-          setIsAuthLoading(false);
-        }
-      } catch (error) {
-        console.error("Error during redirect check:", error);
-         toast({
-          variant: "destructive",
-          title: "Sign Up Failed",
-          description: "Could not complete sign-up. Please try again.",
-        });
-        setIsAuthLoading(false);
-      }
-    };
-    checkRedirect();
-  }, [router, toast]);
-
-
   const handleGoogleSignup = async () => {
     setIsLoading(true);
     const provider = new GoogleAuthProvider();
      provider.setCustomParameters({
       prompt: 'select_account'
     });
-    // The page will reload, so we don't need to set loading to false here.
+    // signInWithRedirect will cause a page reload. AppLayout will handle the redirect result.
     await signInWithRedirect(auth, provider);
   };
   
@@ -92,9 +66,8 @@ export default function CustomerSignupPage() {
             displayName: values.name
         });
       }
-      // AppLayout will handle redirect
+      // AppLayout will handle redirect on successful signup
     } catch (error: any) {
-      console.error("Error during email/password signup:", error);
       let description = "An unexpected error occurred. Please try again.";
       if (error.code === 'auth/email-already-in-use') {
         description = "This email is already in use. Please try another one or login.";
@@ -109,14 +82,6 @@ export default function CustomerSignupPage() {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  if (isAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
   }
 
   return (

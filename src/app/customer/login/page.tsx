@@ -2,7 +2,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -27,8 +26,7 @@ import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
-import { getRedirectResult } from 'firebase/auth';
+import { useState } from 'react';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -36,10 +34,8 @@ const formSchema = z.object({
 });
 
 export default function CustomerLoginPage() {
-  const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -49,35 +45,13 @@ export default function CustomerLoginPage() {
     },
   });
 
-  useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          router.push('/customer/inventory');
-        } else {
-          setIsAuthLoading(false);
-        }
-      } catch (error) {
-        console.error("Error during redirect check:", error);
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: "Could not complete sign-in. Please try again.",
-        });
-        setIsAuthLoading(false);
-      }
-    };
-    checkRedirect();
-  }, [router, toast]);
-
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    // The page will reload, so we don't need to set loading to false here.
+    // signInWithRedirect will cause a page reload. AppLayout will handle the redirect result.
     await signInWithRedirect(auth, provider);
   };
   
@@ -85,9 +59,8 @@ export default function CustomerLoginPage() {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
-      // AppLayout will handle the redirect
+      // AppLayout will handle the redirect on successful login
     } catch (error: any) {
-      console.error("Error during email/password login:", error);
        let description = "An unexpected error occurred. Please try again.";
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
         description = "Invalid email or password. Please try again.";
@@ -102,14 +75,6 @@ export default function CustomerLoginPage() {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  if (isAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
   }
 
   return (

@@ -5,10 +5,11 @@ import * as React from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2, User, Settings } from "lucide-react";
+import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2, User, Settings, LogOut } from "lucide-react";
 import type { User as FirebaseUser } from 'firebase/auth';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut, getRedirectResult } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { useToast } from "@/hooks/use-toast";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -62,19 +63,48 @@ const customerRoutes = ['/customer/inventory'];
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { toast } = useToast();
   const [user, setUser] = React.useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
 
   React.useEffect(() => {
+    // This effect runs once to set up the auth state listener and handle redirect results.
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setAuthLoading(false);
+      // We set loading to false only after the initial user state is determined.
+      if (authLoading) {
+        setAuthLoading(false);
+      }
     });
 
+    // Check for redirect result from Google/other providers
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+           // User has just signed in via redirect. We don't need to do anything here
+           // because onAuthStateChanged will handle setting the user and the logic below
+           // will handle the redirect.
+        } else {
+           // No redirect result, onAuthStateChanged will determine the initial state.
+           setAuthLoading(false);
+        }
+      })
+      .catch((error) => {
+        console.error("Error during getRedirectResult:", error);
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: "Could not complete sign-in. Please try again.",
+        });
+        setAuthLoading(false);
+      });
+
     return () => unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {
+    // This effect handles redirection logic whenever auth state or path changes.
     if (authLoading) return;
 
     const isAuthPage = authRoutes.includes(pathname);
@@ -87,6 +117,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [authLoading, user, pathname, router]);
 
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -95,6 +126,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       console.error("Error signing out:", error);
     }
   };
+
+  const isAuthPage = authRoutes.includes(pathname);
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isAuthPage) {
+    return <>{children}</>;
+  }
+
 
   const sidebarContent = (
     <>
@@ -145,7 +191,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {user && (
                  <SidebarMenuItem>
                     <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
-                        <Loader2 />
+                        <LogOut />
                         <span>Logout</span>
                     </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -154,21 +200,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </SidebarFooter>
     </>
   );
-
-  const isAuthPage = authRoutes.includes(pathname);
-
-  if (isAuthPage || authLoading) {
-    return (
-      <>
-        {authLoading && (
-           <div className="flex min-h-screen items-center justify-center">
-              <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            </div>
-        )}
-        {!authLoading && children}
-      </>
-    )
-  }
 
   return (
     <SidebarProvider defaultOpen={true}>
