@@ -1,3 +1,4 @@
+
 "use client";
 
 import { usePathname } from 'next/navigation';
@@ -8,13 +9,15 @@ import { ThemeProvider } from '@/components/theme-provider';
 
 // Metadata cannot be exported from a Client Component, so we handle title tag directly.
 
+const publicRoutes = ['/customer/login', '/customer/signup'];
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
-  const isLoginPage = pathname === '/customer/login';
+  const isPublicPage = publicRoutes.includes(pathname);
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -31,7 +34,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {isLoginPage ? children : <AppLayout>{children}</AppLayout>}
+          {isPublicPage ? children : <AppLayout>{children}</AppLayout>}
           <Toaster />
         </ThemeProvider>
       </body>

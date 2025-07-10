@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -29,6 +30,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/theme-toggle";
+import Loading from "@/app/loading";
 
 const Sidebar = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.Sidebar), { ssr: false });
 const SidebarTrigger = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.SidebarTrigger), { ssr: false });
@@ -65,21 +67,29 @@ const pageTitles: { [key: string]: string } = {
   "/customer/inventory": "Customer Inventory",
 };
 
+const publicRoutes = ['/customer/login', '/customer/signup'];
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [isMounted, setIsMounted] = React.useState(false);
   const [user, setUser] = React.useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = React.useState(false);
 
   React.useEffect(() => {
-    setIsMounted(true);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthInitialized(true);
     });
     return () => unsubscribe();
   }, []);
+
+  React.useEffect(() => {
+    if (authInitialized) {
+      if (!user && !publicRoutes.includes(pathname)) {
+        router.push('/customer/login');
+      }
+    }
+  }, [authInitialized, user, pathname, router]);
 
   const handleLogout = async () => {
     try {
@@ -121,7 +131,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter className="group-data-[collapsible=icon]:hidden">
-        {authInitialized ? (
+        {authInitialized && user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="w-full justify-start gap-2 p-2" suppressHydrationWarning>
@@ -162,30 +172,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  if (!isMounted) {
+  if (!authInitialized) {
     return (
-       <div style={{"--sidebar-width": "16rem", "--sidebar-width-icon": "3rem"}} className="group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar">
-        <div className="hidden md:block">
-            <div className="flex h-full w-[var(--sidebar-width-icon)] flex-col border-r bg-sidebar p-2 text-sidebar-foreground">
-                <div className="flex h-14 items-center justify-center">
-                    <Skeleton className="h-6 w-6" />
-                </div>
-                <div className="flex flex-col items-center gap-1 py-2">
-                    <Skeleton className="h-8 w-8" />
-                    <Skeleton className="h-8 w-8" />
-                    <Skeleton className="h-8 w-8" />
-                    <Skeleton className="h-8 w-8" />
-                </div>
-            </div>
-        </div>
-        <div className="flex flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-              <Skeleton className="h-7 w-7 md:hidden" />
-              <h1 className="flex-1 text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
-              <Skeleton className="h-8 w-8 rounded-full" />
-          </header>
-          <main className="flex-1 p-4 sm:px-6 sm:py-0">{children}</main>
-        </div>
+      <div className="flex min-h-screen items-center justify-center">
+        <Loading />
       </div>
     );
   }
