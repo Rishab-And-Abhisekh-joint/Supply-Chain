@@ -25,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword, getRedirectResult } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 
@@ -39,6 +39,7 @@ export default function CustomerLoginPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isCheckingRedirect, setIsCheckingRedirect] = useState(true);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -49,33 +50,30 @@ export default function CustomerLoginPage() {
   });
 
   useEffect(() => {
-    // Log the hostname to help debug the "unauthorized-domain" error.
-    // This is the value that needs to be added to the Firebase console.
-    if (typeof window !== 'undefined') {
-      console.log("Firebase Auth Domain to add:", window.location.hostname);
-    }
-  }, []);
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          router.push('/customer/inventory');
+        }
+      } catch (error: any) {
+        console.error("Error during Google redirect check:", error);
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: "Could not log in with Google. Please try again.",
+        });
+      } finally {
+        setIsCheckingRedirect(false);
+      }
+    };
+    checkRedirect();
+  }, [router, toast]);
 
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      router.push('/customer/inventory');
-    } catch (error: any) {
-      // Don't show an error toast if the user closes the popup
-      if (error.code === 'auth/popup-closed-by-user') {
-        return;
-      }
-      console.error("Error during Google login:", error);
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: "Could not log in with Google. Please try again.",
-      });
-    } finally {
-      setIsGoogleLoading(false);
-    }
+    await signInWithRedirect(auth, provider);
   };
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -83,7 +81,8 @@ export default function CustomerLoginPage() {
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
       router.push('/customer/inventory');
-    } catch (error: any) {
+    } catch (error: any)
+{
       console.error("Error during email/password login:", error);
       toast({
         variant: "destructive",
@@ -93,6 +92,14 @@ export default function CustomerLoginPage() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (isCheckingRedirect) {
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-background">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+    )
   }
 
   return (
