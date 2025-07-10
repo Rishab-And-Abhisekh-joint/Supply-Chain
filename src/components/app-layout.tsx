@@ -69,37 +69,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     // This effect runs once to set up the auth state listener and handle redirect results.
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      // We set loading to false only after the initial user state is determined.
-      if (authLoading) {
-        setAuthLoading(false);
-      }
-    });
-
-    // Check for redirect result from Google/other providers
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) {
-           // User has just signed in via redirect. We don't need to do anything here
-           // because onAuthStateChanged will handle setting the user and the logic below
-           // will handle the redirect.
-        } else {
-           // No redirect result, onAuthStateChanged will determine the initial state.
-           setAuthLoading(false);
+    const processAuth = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          // User has just signed in via redirect.
+          // onAuthStateChanged will handle setting the user, so we just need to wait.
         }
-      })
-      .catch((error) => {
+      } catch (error: any) {
         console.error("Error during getRedirectResult:", error);
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: "Could not complete sign-in. Please try again.",
-        });
+        if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
+            toast({
+              variant: "destructive",
+              title: "Login Failed",
+              description: error.message || "Could not complete sign-in. Please try again.",
+            });
+        }
+      }
+
+      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
         setAuthLoading(false);
       });
+      
+      return unsubscribe;
+    };
 
-    return () => unsubscribe();
+    const unsubscribePromise = processAuth();
+
+    return () => {
+      unsubscribePromise.then(unsubscribe => unsubscribe && unsubscribe());
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -108,7 +108,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (authLoading) return;
 
     const isAuthPage = authRoutes.includes(pathname);
-    const isCustomerPage = customerRoutes.includes(pathname);
+    const isCustomerPage = customerRoutes.some(route => pathname.startsWith(route));
 
     if (user && isAuthPage) {
       router.push('/customer/inventory');
@@ -137,10 +137,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isAuthPage) {
+  if (isAuthPage && !user) {
     return <>{children}</>;
   }
-
 
   const sidebarContent = (
     <>
