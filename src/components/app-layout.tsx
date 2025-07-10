@@ -74,8 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = React.useState(false);
+  const [isClient, setIsClient] = React.useState(false);
 
   React.useEffect(() => {
+    setIsClient(true);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthInitialized(true);
@@ -84,10 +86,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   React.useEffect(() => {
-    if (authInitialized) {
-      if (!user && !publicRoutes.includes(pathname)) {
-        router.push('/customer/login');
-      }
+    if (authInitialized && !user && !publicRoutes.includes(pathname)) {
+      router.push('/customer/login');
     }
   }, [authInitialized, user, pathname, router]);
 
@@ -172,7 +172,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  if (!authInitialized) {
+  if (!isClient || !authInitialized) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
