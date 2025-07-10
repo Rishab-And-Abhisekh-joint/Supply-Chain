@@ -4,11 +4,8 @@ import { optimizeLogisticsDecisions, type OptimizeLogisticsDecisionsInput } from
 import { z } from "zod";
 
 const formSchema = z.object({
-  shipmentDetails: z.string().min(1, "Shipment details are required."),
-  deliveryDeadline: z.string().min(1, "Delivery deadline is required."),
-  availableRoutes: z.string().min(1, "Available routes are required."),
-  currentConditions: z.string().min(1, "Current conditions are required."),
-  exceptions: z.string().optional(),
+  origin: z.string().min(1, "Origin address is required."),
+  destination: z.string().min(1, "Destination address is required."),
 });
 
 export async function getLogisticsOptimization(values: z.infer<typeof formSchema>) {
