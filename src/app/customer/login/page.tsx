@@ -24,9 +24,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -36,6 +37,7 @@ const formSchema = z.object({
 export default function CustomerLoginPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -51,8 +53,21 @@ export default function CustomerLoginPage() {
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    // signInWithRedirect will cause a page reload. AppLayout will handle the redirect result.
-    await signInWithRedirect(auth, provider);
+    try {
+      await signInWithPopup(auth, provider);
+      // AppLayout will now handle the redirect, but we can also push here to be certain.
+      router.push('/customer/inventory');
+    } catch (error: any) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: error.message || "Could not complete sign-in with Google. Please try again.",
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
