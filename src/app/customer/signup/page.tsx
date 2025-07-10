@@ -65,13 +65,11 @@ export default function CustomerSignupPage() {
         }
       } catch (error: any) {
         console.error("Error during Google redirect check:", error);
-        if (error.code !== 'auth/popup-closed-by-user') {
-            toast({
-              variant: "destructive",
-              title: "Sign Up Failed",
-              description: "Could not sign up with Google. Please try again.",
-            });
-        }
+        toast({
+          variant: "destructive",
+          title: "Sign Up Failed",
+          description: "Could not sign up with Google. Please try again.",
+        });
         setIsCheckingRedirect(false);
         setIsGoogleLoading(false);
       }
@@ -83,9 +81,6 @@ export default function CustomerSignupPage() {
   const handleGoogleSignup = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({
-        prompt: 'select_account'
-    });
     await signInWithRedirect(auth, provider);
   };
   

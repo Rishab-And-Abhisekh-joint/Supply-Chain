@@ -30,7 +30,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/theme-toggle";
-import Loading from "@/app/loading";
+import { Loader2 } from "lucide-react";
 
 const Sidebar = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.Sidebar), { ssr: false });
 const SidebarTrigger = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.SidebarTrigger), { ssr: false });
@@ -175,7 +175,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!authInitialized) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loading />
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
       </div>
     );
   }
