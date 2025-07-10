@@ -63,12 +63,15 @@ export default function CustomerLoginPage() {
         }
       } catch (error: any) {
         console.error("Error during Google redirect check:", error);
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: "Could not log in with Google. Please try again.",
-        });
+        if (error.code !== 'auth/popup-closed-by-user') {
+          toast({
+            variant: "destructive",
+            title: "Login Failed",
+            description: "Could not log in with Google. Please try again.",
+          });
+        }
         setIsCheckingRedirect(false);
+        setIsGoogleLoading(false);
       }
     };
     checkRedirect();
@@ -77,7 +80,9 @@ export default function CustomerLoginPage() {
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
-    // Use signInWithRedirect instead of signInWithPopup
+    provider.setCustomParameters({
+        prompt: 'select_account'
+    });
     await signInWithRedirect(auth, provider);
   };
   
