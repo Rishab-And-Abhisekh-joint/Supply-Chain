@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2, User, Settings, LogOut } from "lucide-react";
 import type { User as FirebaseUser } from 'firebase/auth';
-import { onAuthStateChanged, signOut, getRedirectResult, GoogleAuthProvider, signInWithRedirect } from 'firebase/auth';
+import { onAuthStateChanged, signOut, getRedirectResult } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 
@@ -67,7 +67,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [user, setUser] = React.useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
-  const { setOpen } = useSidebar();
+  const { setOpen, open } = useSidebar();
 
   React.useEffect(() => {
     const processAuth = async () => {
@@ -202,10 +202,14 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div 
       className="flex min-h-screen w-full bg-muted/40"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
     >
-      <Sidebar collapsible="icon">{sidebarContent}</Sidebar>
+      <Sidebar 
+        collapsible="icon"
+        onMouseEnter={() => !open && setOpen(true)}
+        onMouseLeave={() => open && setOpen(false)}
+      >
+        {sidebarContent}
+      </Sidebar>
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
           <div className="flex md:hidden">
