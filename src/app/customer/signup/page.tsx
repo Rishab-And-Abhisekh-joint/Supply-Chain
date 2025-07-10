@@ -147,8 +147,7 @@ export default function CustomerSignupPage() {
                       <Input placeholder="m@example.com" {...field} />
                     </FormControl>
                     <FormMessage />
-                  </Ite
-m>
+                  </FormItem>
                 )}
               />
               <FormField
