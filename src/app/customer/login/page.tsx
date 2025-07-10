@@ -51,7 +51,9 @@ export default function CustomerLoginPage() {
   useEffect(() => {
     // Log the hostname to help debug the "unauthorized-domain" error.
     // This is the value that needs to be added to the Firebase console.
-    console.log("Firebase Auth Domain to add:", window.location.hostname);
+    if (typeof window !== 'undefined') {
+      console.log("Firebase Auth Domain to add:", window.location.hostname);
+    }
   }, []);
 
   const handleGoogleLogin = async () => {
@@ -60,7 +62,11 @@ export default function CustomerLoginPage() {
     try {
       await signInWithPopup(auth, provider);
       router.push('/customer/inventory');
-    } catch (error) {
+    } catch (error: any) {
+      // Don't show an error toast if the user closes the popup
+      if (error.code === 'auth/popup-closed-by-user') {
+        return;
+      }
       console.error("Error during Google login:", error);
       toast({
         variant: "destructive",

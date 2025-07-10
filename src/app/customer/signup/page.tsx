@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -55,7 +56,11 @@ export default function CustomerSignupPage() {
     try {
       await signInWithPopup(auth, provider);
       router.push('/customer/inventory');
-    } catch (error) {
+    } catch (error: any) {
+      // Don't show an error toast if the user closes the popup
+      if (error.code === 'auth/popup-closed-by-user') {
+        return;
+      }
       console.error("Error during Google signup:", error);
       toast({
         variant: "destructive",
