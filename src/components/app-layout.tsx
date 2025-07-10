@@ -66,7 +66,8 @@ const pageTitles: { [key: string]: string } = {
   "/customer/inventory": "Customer Inventory",
 };
 
-const publicRoutes = ['/customer/login', '/customer/signup'];
+const authRoutes = ['/customer/login', '/customer/signup'];
+const customerRoutes = ['/customer/inventory'];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -78,40 +79,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // This is the primary listener for auth state changes.
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setAuthLoading(false);
+      // We only set loading to false after the first auth state is determined.
+      if (authLoading) {
+        setAuthLoading(false);
+      }
     });
 
-    // Check for redirect result from Google Sign-In
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result && result.user) {
-          // A user was found from the redirect. onAuthStateChanged will handle it.
-          // The loading state will be updated by the listener.
-        } else {
-          // No user from redirect, maybe they are already logged in or not logged in at all.
-          // onAuthStateChanged will determine the final state.
-        }
-      })
-      .catch((error) => {
-        console.error("Error getting redirect result:", error);
-        setAuthLoading(false);
-      });
-
     return () => unsubscribe();
-  }, []);
+  }, [authLoading]);
+
 
   React.useEffect(() => {
     if (authLoading) {
       return; // Do nothing while we are waiting for auth state
     }
 
-    const isPublicPage = publicRoutes.includes(pathname);
+    const isAuthPage = authRoutes.includes(pathname);
+    const isCustomerPage = customerRoutes.includes(pathname);
 
-    if (user && isPublicPage) {
-      // User is logged in but on a public page, redirect to their panel
+    if (user && isAuthPage) {
+      // User is logged in but on an auth page, redirect to their panel
       router.push('/customer/inventory');
-    } else if (!user && !isPublicPage) {
-      // User is not logged in and on a private page, redirect to login
+    } else if (!user && isCustomerPage) {
+      // User is not logged in and on a private customer page, redirect to login
       router.push('/customer/login');
     }
   }, [authLoading, user, pathname, router]);
@@ -197,6 +187,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </>
   );
 
+  const isAuthPage = authRoutes.includes(pathname);
+
+  // If we are on an auth page, we don't need the main layout, just the children (the login/signup form)
+  if (isAuthPage) {
+    if (authLoading) {
+      return (
+         <div className="flex min-h-screen items-center justify-center">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          </div>
+      )
+    }
+    return <>{children}</>
+  }
+
+  // If we are checking auth for any other page, show a loader.
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -206,7 +211,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider defaultOpen={false}>
+    <SidebarProvider defaultOpen={true}>
       <div className="flex min-h-screen w-full bg-muted/40">
         <Sidebar collapsible="icon">{sidebarContent}</Sidebar>
         <div className="flex flex-1 flex-col">

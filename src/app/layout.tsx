@@ -9,16 +9,13 @@ import { ThemeProvider } from '@/components/theme-provider';
 
 // Metadata cannot be exported from a Client Component, so we handle title tag directly.
 
-const publicRoutes = ['/customer/login', '/customer/signup'];
-
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
-  const isPublicPage = publicRoutes.includes(pathname);
-
+  
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -34,8 +31,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {isPublicPage ? children : <AppLayout>{children}</AppLayout>}
-          <Toaster />
+            <AppLayout>{children}</AppLayout>
+            <Toaster />
         </ThemeProvider>
       </body>
     </html>
