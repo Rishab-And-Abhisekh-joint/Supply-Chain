@@ -54,7 +54,12 @@ export default function CustomerLoginPage() {
       try {
         const result = await getRedirectResult(auth);
         if (result) {
+          // User has successfully signed in via redirect.
+          // The loading screen will be shown until the auth state listener in AppLayout takes over.
           router.push('/customer/inventory');
+        } else {
+          // No redirect result, so we can stop checking.
+          setIsCheckingRedirect(false);
         }
       } catch (error: any) {
         console.error("Error during Google redirect check:", error);
@@ -63,7 +68,6 @@ export default function CustomerLoginPage() {
           title: "Login Failed",
           description: "Could not log in with Google. Please try again.",
         });
-      } finally {
         setIsCheckingRedirect(false);
       }
     };
@@ -73,6 +77,7 @@ export default function CustomerLoginPage() {
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
+    // Use signInWithRedirect instead of signInWithPopup
     await signInWithRedirect(auth, provider);
   };
   

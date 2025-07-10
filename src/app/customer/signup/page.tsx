@@ -56,7 +56,12 @@ export default function CustomerSignupPage() {
       try {
         const result = await getRedirectResult(auth);
         if (result) {
+          // User has successfully signed in via redirect.
+          // The loading screen will be shown until the auth state listener in AppLayout takes over.
           router.push('/customer/inventory');
+        } else {
+          // No redirect result, so we can stop checking.
+          setIsCheckingRedirect(false);
         }
       } catch (error: any) {
         console.error("Error during Google redirect check:", error);
@@ -65,7 +70,6 @@ export default function CustomerSignupPage() {
           title: "Sign Up Failed",
           description: "Could not sign up with Google. Please try again.",
         });
-      } finally {
         setIsCheckingRedirect(false);
       }
     };
