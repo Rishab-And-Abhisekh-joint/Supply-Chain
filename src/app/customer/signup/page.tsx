@@ -25,9 +25,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile, getRedirectResult } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const formSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -40,7 +40,6 @@ export default function CustomerSignupPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [isCheckingRedirect, setIsCheckingRedirect] = useState(true);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -51,37 +50,24 @@ export default function CustomerSignupPage() {
     },
   });
 
-  useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          // User has successfully signed in via redirect.
-          // The loading screen will be shown until the auth state listener in AppLayout takes over.
-          router.push('/customer/inventory');
-        } else {
-          // No redirect result, so we can stop checking.
-          setIsCheckingRedirect(false);
-        }
-      } catch (error: any) {
-        console.error("Error during Google redirect check:", error);
-        toast({
-          variant: "destructive",
-          title: "Sign Up Failed",
-          description: "Could not sign up with Google. Please try again.",
-        });
-        setIsCheckingRedirect(false);
-        setIsGoogleLoading(false);
-      }
-    };
-    checkRedirect();
-  }, [router, toast]);
-
-
   const handleGoogleSignup = async () => {
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
-    await signInWithRedirect(auth, provider);
+    try {
+        await signInWithPopup(auth, provider);
+        router.push('/customer/inventory');
+    } catch (error: any) {
+        if (error.code !== 'auth/popup-closed-by-user') {
+            console.error("Error during Google signup:", error);
+            toast({
+                variant: "destructive",
+                title: "Sign Up Failed",
+                description: "Could not sign up with Google. Please try again.",
+            });
+        }
+    } finally {
+        setIsGoogleLoading(false);
+    }
   };
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -104,14 +90,6 @@ export default function CustomerSignupPage() {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  if (isCheckingRedirect) {
-    return (
-        <div className="flex min-h-screen items-center justify-center bg-background">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
-    )
   }
 
   return (
