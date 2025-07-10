@@ -58,7 +58,7 @@ export default function CustomerSignupPage() {
     });
     try {
         await signInWithPopup(auth, provider);
-        router.push('/customer/inventory');
+        // AppLayout will handle the redirect
     } catch (error: any) {
         if (error.code !== 'auth/popup-closed-by-user') {
             console.error("Error during Google signup:", error);
@@ -82,7 +82,7 @@ export default function CustomerSignupPage() {
             displayName: values.name
         });
       }
-      router.push('/customer/inventory');
+      // AppLayout will handle the redirect
     } catch (error: any) {
       console.error("Error during email/password signup:", error);
       toast({

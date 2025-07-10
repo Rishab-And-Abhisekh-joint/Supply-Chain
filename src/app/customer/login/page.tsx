@@ -56,7 +56,7 @@ export default function CustomerLoginPage() {
     });
     try {
         await signInWithPopup(auth, provider);
-        router.push('/customer/inventory');
+        // AppLayout will handle the redirect
     } catch (error: any) {
         if (error.code !== 'auth/popup-closed-by-user') {
             console.error("Error during Google login:", error);
@@ -75,7 +75,7 @@ export default function CustomerLoginPage() {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
-      router.push('/customer/inventory');
+      // AppLayout will handle the redirect
     } catch (error: any)
 {
       console.error("Error during email/password login:", error);

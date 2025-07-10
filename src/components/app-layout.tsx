@@ -5,7 +5,7 @@ import * as React from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { Bot, LayoutDashboard, Truck, TrendingUp, Package2 } from "lucide-react";
+import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2 } from "lucide-react";
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -30,7 +30,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Loader2 } from "lucide-react";
 
 const Sidebar = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.Sidebar), { ssr: false });
 const SidebarTrigger = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.SidebarTrigger), { ssr: false });
@@ -74,20 +73,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = React.useState(false);
-  const [isClient, setIsClient] = React.useState(false);
 
   React.useEffect(() => {
-    setIsClient(true);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setAuthInitialized(true);
+      if (!authInitialized) {
+        setAuthInitialized(true);
+      }
     });
     return () => unsubscribe();
-  }, []);
+  }, [authInitialized]);
 
   React.useEffect(() => {
-    if (authInitialized && !user && !publicRoutes.includes(pathname)) {
-      router.push('/customer/login');
+    if (authInitialized) {
+      const isPublicPage = publicRoutes.includes(pathname);
+      if (user && isPublicPage) {
+        // User is logged in but on a public page, redirect to their panel
+        router.push('/customer/inventory');
+      } else if (!user && !isPublicPage) {
+        // User is not logged in and on a private page, redirect to login
+        router.push('/customer/login');
+      }
     }
   }, [authInitialized, user, pathname, router]);
 
@@ -131,7 +137,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter className="group-data-[collapsible=icon]:hidden">
-        {authInitialized && user ? (
+        {user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="w-full justify-start gap-2 p-2" suppressHydrationWarning>
@@ -160,7 +166,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-            <div className="flex items-center gap-2 p-2">
+             <div className="flex items-center gap-2 p-2">
                 <Skeleton className="h-8 w-8 rounded-full" />
                 <div className="flex-1 space-y-1">
                     <Skeleton className="h-4 w-20" />
@@ -172,7 +178,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  if (!isClient || !authInitialized) {
+  if (!authInitialized) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
