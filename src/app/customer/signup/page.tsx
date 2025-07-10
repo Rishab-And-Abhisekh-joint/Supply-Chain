@@ -39,6 +39,7 @@ export default function CustomerSignupPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -50,7 +51,7 @@ export default function CustomerSignupPage() {
   });
 
   const handleGoogleSignup = async () => {
-    setIsLoading(true);
+    setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({
       prompt: 'select_account'
@@ -68,7 +69,7 @@ export default function CustomerSignupPage() {
             });
         }
     } finally {
-        setIsLoading(false);
+        setIsGoogleLoading(false);
     }
   };
   
@@ -148,7 +149,7 @@ export default function CustomerSignupPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Create Account
               </Button>
@@ -164,8 +165,8 @@ export default function CustomerSignupPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleSignup} disabled={isLoading}>
-             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button variant="outline" className="w-full" onClick={handleGoogleSignup} disabled={isLoading || isGoogleLoading}>
+             {isGoogleLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Sign Up with Google
           </Button>
           <div className="mt-4 text-center text-sm">
