@@ -96,7 +96,7 @@ export default function LogisticsClient() {
 
   const renderMap = () => {
     if (loadError) {
-      return <div className="text-destructive">Error loading maps. Please check your API key.</div>;
+      return <div className="p-4 text-center text-destructive">Error loading maps. Please ensure your Google Maps API key is valid and added to your .env.local file.</div>;
     }
     if (!isLoaded) {
       return <Skeleton className="h-[400px] w-full" />;
