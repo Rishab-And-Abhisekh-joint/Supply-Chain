@@ -25,9 +25,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword, getRedirectResult } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -38,44 +38,13 @@ export default function CustomerLoginPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-
-  useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user) {
-          router.push('/customer/inventory');
-        } else {
-          setIsAuthLoading(false);
-        }
-      } catch (error: any) {
-        console.error("Error during redirect check:", error);
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: error.message || "An unexpected error occurred during login.",
-        });
-        setIsAuthLoading(false);
-      }
-    };
-    checkRedirect();
-  }, [router, toast]);
-
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
   
   const handleGoogleLogin = async () => {
-    setIsAuthLoading(true);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({
       prompt: 'select_account'
     });
+    // Let the AppLayout handle the redirect after this is initiated.
     await signInWithRedirect(auth, provider);
   };
   
@@ -83,7 +52,7 @@ export default function CustomerLoginPage() {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
-      router.push('/customer/inventory');
+      // AppLayout will handle the redirect
     } catch (error: any)
 {
       console.error("Error during email/password login:", error);
@@ -95,14 +64,6 @@ export default function CustomerLoginPage() {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  if (isAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
   }
 
   return (
@@ -170,7 +131,7 @@ export default function CustomerLoginPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading}>
+          <Button variant="outline" className="w-full" onClick={handleGoogleLogin}>
             Login with Google
           </Button>
           <div className="mt-4 text-center text-sm">

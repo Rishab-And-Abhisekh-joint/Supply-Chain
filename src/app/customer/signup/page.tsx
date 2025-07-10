@@ -25,9 +25,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile, getRedirectResult } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const formSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -39,43 +39,8 @@ export default function CustomerSignupPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-
-
-  useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user) {
-          router.push('/customer/inventory');
-        } else {
-          setIsAuthLoading(false);
-        }
-      } catch (error: any) {
-        console.error("Error during redirect check:", error);
-        toast({
-          variant: "destructive",
-          title: "Sign Up Failed",
-          description: error.message || "An unexpected error occurred during sign up.",
-        });
-        setIsAuthLoading(false);
-      }
-    };
-    checkRedirect();
-  }, [router, toast]);
-
-
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: "",
-      email: "",
-      password: "",
-    },
-  });
 
   const handleGoogleSignup = async () => {
-    setIsAuthLoading(true);
     const provider = new GoogleAuthProvider();
      provider.setCustomParameters({
       prompt: 'select_account'
@@ -92,7 +57,7 @@ export default function CustomerSignupPage() {
             displayName: values.name
         });
       }
-      router.push('/customer/inventory');
+      // AppLayout will handle redirect
     } catch (error: any) {
       console.error("Error during email/password signup:", error);
       toast({
@@ -104,15 +69,6 @@ export default function CustomerSignupPage() {
       setIsLoading(false);
     }
   }
-  
-  if (isAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
-  }
-
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -184,7 +140,7 @@ export default function CustomerSignupPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleSignup} disabled={isLoading}>
+          <Button variant="outline" className="w-full" onClick={handleGoogleSignup}>
             Sign Up with Google
           </Button>
           <div className="mt-4 text-center text-sm">

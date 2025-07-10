@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2 } from "lucide-react";
 import type { User } from 'firebase/auth';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut, getRedirectResult } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 
 import { Button } from "@/components/ui/button";
@@ -72,30 +72,49 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
-  const [authInitialized, setAuthInitialized] = React.useState(false);
+  const [authLoading, setAuthLoading] = React.useState(true);
 
   React.useEffect(() => {
+    // This is the primary listener for auth state changes.
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!authInitialized) {
-        setAuthInitialized(true);
-      }
+      setAuthLoading(false);
     });
+
+    // Check for redirect result from Google Sign-In
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result && result.user) {
+          // A user was found from the redirect. onAuthStateChanged will handle it.
+          // The loading state will be updated by the listener.
+        } else {
+          // No user from redirect, maybe they are already logged in or not logged in at all.
+          // onAuthStateChanged will determine the final state.
+        }
+      })
+      .catch((error) => {
+        console.error("Error getting redirect result:", error);
+        setAuthLoading(false);
+      });
+
     return () => unsubscribe();
-  }, [authInitialized]);
+  }, []);
 
   React.useEffect(() => {
-    if (authInitialized) {
-      const isPublicPage = publicRoutes.includes(pathname);
-      if (user && isPublicPage) {
-        // User is logged in but on a public page, redirect to their panel
-        router.push('/customer/inventory');
-      } else if (!user && !isPublicPage) {
-        // User is not logged in and on a private page, redirect to login
-        router.push('/customer/login');
-      }
+    if (authLoading) {
+      return; // Do nothing while we are waiting for auth state
     }
-  }, [authInitialized, user, pathname, router]);
+
+    const isPublicPage = publicRoutes.includes(pathname);
+
+    if (user && isPublicPage) {
+      // User is logged in but on a public page, redirect to their panel
+      router.push('/customer/inventory');
+    } else if (!user && !isPublicPage) {
+      // User is not logged in and on a private page, redirect to login
+      router.push('/customer/login');
+    }
+  }, [authLoading, user, pathname, router]);
 
   const handleLogout = async () => {
     try {
@@ -105,7 +124,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       console.error("Error signing out:", error);
     }
   };
-
+  
   const sidebarContent = (
     <>
       <SidebarHeader>
@@ -178,7 +197,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  if (!authInitialized) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
