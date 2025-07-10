@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Route, Clock, Wand2, Milestone, MapIcon } from "lucide-react";
+import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle } from "lucide-react";
 import { GoogleMap, useJsApiLoader, DirectionsRenderer } from '@react-google-maps/api';
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { OptimizeLogisticsDecisionsOutput } from "@/ai/flows/optimize-logistics-decisions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Skeleton } from "./ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 
 const formSchema = z.object({
   origin: z.string().min(1, "Origin address is required."),
@@ -45,8 +47,11 @@ export default function LogisticsClient() {
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const { toast } = useToast();
 
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+  
   const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
+    googleMapsApiKey: apiKey,
+    preventGoogleFontsLoading: true,
   });
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -95,8 +100,19 @@ export default function LogisticsClient() {
   }
 
   const renderMap = () => {
+    if (!apiKey) {
+      return (
+         <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Google Maps API Key Missing</AlertTitle>
+            <AlertDescription>
+              Please add your Google Maps API key to the `.env.local` file as `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_API_KEY_HERE`. You can get a key from the Google Cloud Console.
+            </AlertDescription>
+          </Alert>
+      )
+    }
     if (loadError) {
-      return <div className="p-4 text-center text-destructive">Error loading maps. Please ensure your Google Maps API key is valid and added to your .env.local file.</div>;
+      return <div className="p-4 text-center text-destructive">Error loading maps. Please ensure your Google Maps API key is valid.</div>;
     }
     if (!isLoaded) {
       return <Skeleton className="h-[400px] w-full" />;
@@ -144,7 +160,7 @@ export default function LogisticsClient() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isLoading || !isLoaded}>
+              <Button type="submit" disabled={isLoading || !isLoaded || !apiKey}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Optimize Route
               </Button>
