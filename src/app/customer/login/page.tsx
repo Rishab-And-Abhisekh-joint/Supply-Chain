@@ -50,6 +50,9 @@ export default function CustomerLoginPage() {
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
     try {
         await signInWithPopup(auth, provider);
         router.push('/customer/inventory');
