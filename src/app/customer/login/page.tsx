@@ -27,7 +27,8 @@ import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getRedirectResult } from 'firebase/auth';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -38,13 +39,39 @@ export default function CustomerLoginPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          router.push('/customer/inventory');
+        } else {
+          setIsAuthLoading(false);
+        }
+      } catch (error) {
+        console.error("Error during redirect check:", error);
+        setIsAuthLoading(false);
+      }
+    };
+    checkRedirect();
+  }, [router]);
+
   const handleGoogleLogin = async () => {
+    setIsLoading(true);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    // Let the AppLayout handle the redirect after this is initiated.
     await signInWithRedirect(auth, provider);
   };
   
@@ -53,8 +80,7 @@ export default function CustomerLoginPage() {
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
       // AppLayout will handle the redirect
-    } catch (error: any)
-{
+    } catch (error: any) {
       console.error("Error during email/password login:", error);
       toast({
         variant: "destructive",
@@ -64,6 +90,14 @@ export default function CustomerLoginPage() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (isAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -131,7 +165,8 @@ export default function CustomerLoginPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleLogin}>
+          <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading}>
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Login with Google
           </Button>
           <div className="mt-4 text-center text-sm">

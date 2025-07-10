@@ -25,9 +25,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, createUserWithEmailAndPassword, updateProfile, getRedirectResult } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const formSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -39,8 +39,37 @@ export default function CustomerSignupPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+    },
+  });
+
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          router.push('/customer/inventory');
+        } else {
+          setIsAuthLoading(false);
+        }
+      } catch (error) {
+        console.error("Error during redirect check:", error);
+        setIsAuthLoading(false);
+      }
+    };
+    checkRedirect();
+  }, [router]);
+
 
   const handleGoogleSignup = async () => {
+    setIsLoading(true);
     const provider = new GoogleAuthProvider();
      provider.setCustomParameters({
       prompt: 'select_account'
@@ -68,6 +97,14 @@ export default function CustomerSignupPage() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (isAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -140,7 +177,8 @@ export default function CustomerSignupPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleSignup}>
+          <Button variant="outline" className="w-full" onClick={handleGoogleSignup} disabled={isLoading}>
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Sign Up with Google
           </Button>
           <div className="mt-4 text-center text-sm">
