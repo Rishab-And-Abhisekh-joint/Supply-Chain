@@ -1,11 +1,11 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Loader2 } from 'lucide-react';
+import { PlusCircle, Loader2, Pencil } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -38,8 +38,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
+interface Product {
+    id: string;
+    name: string;
+    sku: string;
+    quantity: number;
+    weight: string;
+    dimensions: string;
+}
 
-const initialInventory = [
+const initialInventory: Product[] = [
     { id: 'PROD001', name: 'Premium Laptop', sku: 'LP-PREM-01', quantity: 45, weight: '2.1 kg', dimensions: '35x25x2 cm' },
     { id: 'PROD002', name: 'Wireless Mouse', sku: 'MS-WRLS-05', quantity: 150, weight: '0.1 kg', dimensions: '10x6x4 cm' },
     { id: 'PROD003', name: 'Mechanical Keyboard', sku: 'KB-MECH-02', quantity: 0, weight: '1.2 kg', dimensions: '45x15x4 cm' },
@@ -61,7 +69,8 @@ const getStatus = (quantity: number): string => {
     return 'In Stock';
 }
 
-const addProductSchema = z.object({
+const productSchema = z.object({
+  id: z.string().optional(),
   name: z.string().min(1, 'Product name is required.'),
   sku: z.string().min(1, 'SKU is required.'),
   quantity: z.coerce.number().int().min(0, 'Quantity cannot be negative.'),
@@ -71,14 +80,17 @@ const addProductSchema = z.object({
 
 
 export default function CustomerInventoryPage() {
-    const [inventory, setInventory] = useState(initialInventory);
+    const [inventory, setInventory] = useState<Product[]>(initialInventory);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const { toast } = useToast();
 
-    const form = useForm<z.infer<typeof addProductSchema>>({
-        resolver: zodResolver(addProductSchema),
+    const form = useForm<z.infer<typeof productSchema>>({
+        resolver: zodResolver(productSchema),
         defaultValues: {
+            id: '',
             name: '',
             sku: '',
             quantity: 0,
@@ -87,25 +99,54 @@ export default function CustomerInventoryPage() {
         },
     });
 
-    const onSubmit = (values: z.infer<typeof addProductSchema>) => {
+    useEffect(() => {
+        if (dialogMode === 'edit' && selectedProduct) {
+            form.reset(selectedProduct);
+        } else {
+            form.reset({
+                id: '',
+                name: '',
+                sku: '',
+                quantity: 0,
+                weight: '',
+                dimensions: '',
+            });
+        }
+    }, [dialogMode, selectedProduct, form, isDialogOpen]);
+
+    const onSubmit = (values: z.infer<typeof productSchema>) => {
         setIsSubmitting(true);
         
         // Simulate an API call
         setTimeout(() => {
-            const newProduct = {
-                id: `PROD${String(inventory.length + 1).padStart(3, '0')}`,
-                ...values,
-            };
-            setInventory(prev => [...prev, newProduct]);
+            if (dialogMode === 'add') {
+                const newProduct = {
+                    ...values,
+                    id: `PROD${String(inventory.length + 1).padStart(3, '0')}`,
+                };
+                setInventory(prev => [...prev, newProduct]);
+                toast({
+                    title: "Product Added",
+                    description: `Successfully added "${values.name}" to your inventory.`,
+                });
+            } else {
+                 setInventory(prev => prev.map(p => p.id === values.id ? { ...p, ...values } : p));
+                 toast({
+                    title: "Product Updated",
+                    description: `Successfully updated "${values.name}".`,
+                });
+            }
+
             setIsSubmitting(false);
             setIsDialogOpen(false);
-            form.reset();
-            toast({
-                title: "Product Added",
-                description: `Successfully added "${values.name}" to your inventory.`,
-            });
         }, 1000);
     }
+    
+    const openDialog = (mode: 'add' | 'edit', product: Product | null = null) => {
+        setDialogMode(mode);
+        setSelectedProduct(product);
+        setIsDialogOpen(true);
+    };
 
     return (
         <div className="space-y-6">
@@ -117,16 +158,19 @@ export default function CustomerInventoryPage() {
                     </div>
                      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                         <DialogTrigger asChild>
-                           <Button>
+                           <Button onClick={() => openDialog('add')}>
                                 <PlusCircle className="mr-2 h-4 w-4" />
                                 Add Product
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[425px]">
                             <DialogHeader>
-                                <DialogTitle>Add New Product</DialogTitle>
+                                <DialogTitle>{dialogMode === 'add' ? 'Add New Product' : 'Edit Product'}</DialogTitle>
                                 <DialogDescription>
-                                    Enter the details for the new inventory item. Click save when you're done.
+                                    {dialogMode === 'add' 
+                                        ? "Enter the details for the new inventory item. Click save when you're done."
+                                        : "Update the product details. Click save when you're done."
+                                    }
                                 </DialogDescription>
                             </DialogHeader>
                              <Form {...form}>
@@ -199,7 +243,7 @@ export default function CustomerInventoryPage() {
                                      <DialogFooter>
                                         <Button type="submit" disabled={isSubmitting}>
                                             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Save Product
+                                            Save Changes
                                         </Button>
                                     </DialogFooter>
                                 </form>
@@ -217,6 +261,7 @@ export default function CustomerInventoryPage() {
                                 <TableHead>Weight</TableHead>
                                 <TableHead>Dimensions</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -231,6 +276,12 @@ export default function CustomerInventoryPage() {
                                         <TableCell>{item.dimensions}</TableCell>
                                         <TableCell>
                                             <Badge variant={statusVariantMap[status] || 'outline'}>{status}</Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button variant="ghost" size="icon" onClick={() => openDialog('edit', item)}>
+                                                <Pencil className="h-4 w-4" />
+                                                <span className="sr-only">Edit Product</span>
+                                            </Button>
                                         </TableCell>
                                     </TableRow>
                                 )}
