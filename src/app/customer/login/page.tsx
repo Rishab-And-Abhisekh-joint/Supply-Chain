@@ -25,9 +25,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Package2, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword, getRedirectResult } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -38,7 +38,29 @@ export default function CustomerLoginPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result && result.user) {
+          router.push('/customer/inventory');
+        } else {
+          setIsAuthLoading(false);
+        }
+      } catch (error: any) {
+        console.error("Error during redirect check:", error);
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: error.message || "An unexpected error occurred during login.",
+        });
+        setIsAuthLoading(false);
+      }
+    };
+    checkRedirect();
+  }, [router, toast]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -49,33 +71,19 @@ export default function CustomerLoginPage() {
   });
   
   const handleGoogleLogin = async () => {
-    setIsGoogleLoading(true);
+    setIsAuthLoading(true);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    try {
-        await signInWithPopup(auth, provider);
-        // AppLayout will handle the redirect
-    } catch (error: any) {
-        if (error.code !== 'auth/popup-closed-by-user') {
-            console.error("Error during Google login:", error);
-            toast({
-                variant: "destructive",
-                title: "Login Failed",
-                description: "Could not log in with Google. Please try again.",
-            });
-        }
-    } finally {
-        setIsGoogleLoading(false);
-    }
+    await signInWithRedirect(auth, provider);
   };
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
-      // AppLayout will handle the redirect
+      router.push('/customer/inventory');
     } catch (error: any)
 {
       console.error("Error during email/password login:", error);
@@ -87,6 +95,14 @@ export default function CustomerLoginPage() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (isAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -138,7 +154,7 @@ export default function CustomerLoginPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
+              <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Login
               </Button>
@@ -154,8 +170,7 @@ export default function CustomerLoginPage() {
                 </span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading || isGoogleLoading}>
-             {isGoogleLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading}>
             Login with Google
           </Button>
           <div className="mt-4 text-center text-sm">
