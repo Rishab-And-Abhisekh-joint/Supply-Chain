@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2, User, Settings, LogOut } from "lucide-react";
 import type { User as FirebaseUser } from 'firebase/auth';
-import { onAuthStateChanged, signOut, getRedirectResult } from 'firebase/auth';
+import { onAuthStateChanged, signOut, getRedirectResult, GoogleAuthProvider, signInWithRedirect } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useToast } from "@/hooks/use-toast";
 
@@ -74,8 +74,8 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       try {
         const result = await getRedirectResult(auth);
         if (result) {
-          // User has just signed in via redirect.
-          // onAuthStateChanged will handle setting the user, so we just need to wait.
+          toast({ title: "Logged in successfully!" });
+          router.push('/customer/inventory');
         }
       } catch (error: any) {
         console.error("Error during getRedirectResult:", error);
@@ -222,13 +222,20 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
 
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isAuthPage = authRoutes.includes(pathname);
+    const [isClient, setIsClient] = React.useState(false);
 
-  if (isAuthPage) {
-    return <LayoutContent>{children}</LayoutContent>;
-  }
+    React.useEffect(() => {
+        setIsClient(true);
+    }, []);
 
+    if (!isClient) {
+        return (
+            <div className="flex min-h-screen items-center justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            </div>
+        );
+    }
+    
   return (
     <SidebarProvider defaultOpen={false}>
       <LayoutContent>{children}</LayoutContent>
