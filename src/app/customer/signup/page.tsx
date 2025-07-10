@@ -89,10 +89,16 @@ export default function CustomerSignupPage() {
       // AppLayout will handle redirect
     } catch (error: any) {
       console.error("Error during email/password signup:", error);
+      let description = "An unexpected error occurred. Please try again.";
+      if (error.code === 'auth/email-already-in-use') {
+        description = "This email is already in use. Please try another one or login.";
+      } else {
+        description = error.message;
+      }
       toast({
         variant: "destructive",
         title: "Sign Up Failed",
-        description: error.message || "An unexpected error occurred. Please try again.",
+        description: description,
       });
     } finally {
       setIsLoading(false);

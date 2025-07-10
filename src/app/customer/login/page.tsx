@@ -82,10 +82,16 @@ export default function CustomerLoginPage() {
       // AppLayout will handle the redirect
     } catch (error: any) {
       console.error("Error during email/password login:", error);
+       let description = "An unexpected error occurred. Please try again.";
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        description = "Invalid email or password. Please try again.";
+      } else {
+        description = error.message;
+      }
       toast({
         variant: "destructive",
         title: "Login Failed",
-        description: error.message || "Invalid email or password. Please try again.",
+        description: description,
       });
     } finally {
       setIsLoading(false);
