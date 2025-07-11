@@ -1,11 +1,13 @@
 
 "use client";
 
+import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import AppLayout from '@/components/app-layout';
 import { ThemeProvider } from '@/components/theme-provider';
+import { auth } from '@/lib/firebase';
 
 // Metadata cannot be exported from a Client Component, so we handle title tag directly.
 
@@ -15,6 +17,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      (window as any).auth = auth;
+    }
+  }, []);
   
   return (
     <html lang="en" suppressHydrationWarning>
