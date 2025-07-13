@@ -20,10 +20,10 @@ const SummarizeAnomaliesInputSchema = z.object({
 export type SummarizeAnomaliesInput = z.infer<typeof SummarizeAnomaliesInputSchema>;
 
 const SummarizeAnomaliesOutputSchema = z.object({
-  summary: z.string().describe('A concise summary of anomalies in the event stream.'),
-  suggestedActions: z
-    .string()
-    .describe('Suggested actions to address the identified anomalies.'),
+  anomalies: z.array(z.object({
+      summary: z.string().describe('A concise summary of a single identified anomaly.'),
+      suggestedAction: z.string().describe('The suggested action to address this specific anomaly.'),
+  })).describe('A list of identified anomalies, each with a summary and a suggested action.'),
 });
 export type SummarizeAnomaliesOutput = z.infer<typeof SummarizeAnomaliesOutputSchema>;
 
@@ -35,7 +35,10 @@ const prompt = ai.definePrompt({
   name: 'summarizeAnomaliesPrompt',
   input: {schema: SummarizeAnomaliesInputSchema},
   output: {schema: SummarizeAnomaliesOutputSchema},
-  prompt: `You are a supply chain analyst. Summarize the following event stream, highlight any anomalies, and suggest actions to address them.\n\nEvent Stream:\n{{eventStream}}`,
+  prompt: `You are a supply chain analyst. Analyze the following event stream. For each anomaly you identify, provide a concise summary of the issue and a specific, scannable, and actionable suggested action to address it. Structure your response as a list of anomalies.
+
+Event Stream:
+{{eventStream}}`,
 });
 
 const summarizeAnomaliesFlow = ai.defineFlow(

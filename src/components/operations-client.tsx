@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Loader2, AlertTriangle, CheckCircle, Waves } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle, Waves, Clipboard } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getAnomalySummary } from "@/app/operations/actions";
@@ -194,26 +194,34 @@ export default function OperationsClient() {
       {analysisResult && (
         <div className="space-y-6 pt-6">
           <h3 className="text-lg font-semibold text-center">Analysis Results</h3>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-                <CardTitle>Anomaly Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="prose prose-sm dark:prose-invert max-w-none">
-                 <p>{analysisResult.summary}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-                <CardTitle>Suggested Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="prose prose-sm dark:prose-invert max-w-none">
-                <p>{analysisResult.suggestedActions}</p>
-              </CardContent>
-            </Card>
-          </div>
+          <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Clipboard className="h-5 w-5 text-primary" />Point-by-Point Analysis</CardTitle>
+                <CardDescription>The AI has identified the following anomalies and suggested actions.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                {analysisResult.anomalies.map((item, index) => (
+                    <div key={index} className="p-4 rounded-lg border bg-muted/30">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="h-5 w-5 text-destructive mt-1 flex-shrink-0"/>
+                            <div>
+                                <h4 className="font-semibold">Anomaly: {item.summary}</h4>
+                                <div className="flex items-start gap-2 mt-2">
+                                     <CheckCircle className="h-4 w-4 text-green-500 mt-1 flex-shrink-0" />
+                                    <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Suggested Action:</span> {item.suggestedAction}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+                {analysisResult.anomalies.length === 0 && (
+                     <div className="text-center text-muted-foreground py-4">
+                        <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                        <p>No significant anomalies detected in the flagged events.</p>
+                    </div>
+                )}
+            </CardContent>
+          </Card>
         </div>
       )}
       <style jsx>{`
