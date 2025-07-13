@@ -48,8 +48,8 @@ const getRouteGeoJSON = (origin: string, destination: string): GeoJSON.Feature<G
         "chicago, il": [-87.6298, 41.8781],
         "houston, tx": [-95.3698, 29.7604],
         "phoenix, az": [-112.0740, 33.4484],
-        "1600 Amphitheatre Parkway, Mountain View, CA": [-122.084, 37.422],
-        "1 Infinite Loop, Cupertino, CA": [-122.0322, 37.3318]
+        "1600 amphitheatre parkway, mountain view, ca": [-122.084, 37.422],
+        "1 infinite loop, cupertino, ca": [-122.0322, 37.3318]
     }
     const originCoords = locations[origin.toLowerCase()] || [-98.5795, 39.8283];
     const destinationCoords = locations[destination.toLowerCase()] || [-98.5795, 39.8283];
@@ -79,7 +79,8 @@ export default function LogisticsClient() {
     if (typeof window !== 'undefined') {
       const style = getComputedStyle(document.body);
       const primaryHsl = style.getPropertyValue("--primary").trim();
-      setPrimaryColor(`hsl(${primaryHsl})`);
+      const formattedHsl = primaryHsl.replace(/ /g, ',');
+      setPrimaryColor(`hsl(${formattedHsl})`);
     }
   }, [theme]);
 
@@ -110,13 +111,13 @@ export default function LogisticsClient() {
   }
 
   const renderMap = () => {
-    if (!mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE') {
+    if (!mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')) {
       return (
          <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Mapbox API Key Missing</AlertTitle>
+            <AlertTitle>Mapbox Public Key Missing</AlertTitle>
             <AlertDescription>
-              Please add your Mapbox API key to your `.env` file as `NEXT_PUBLIC_MAPBOX_API_KEY=YOUR_API_KEY_HERE`. You can get a key from the Mapbox website.
+              Please add your public Mapbox API key (it should start with `pk.`) to your `.env` file as `NEXT_PUBLIC_MAPBOX_API_KEY=YOUR_API_KEY_HERE`. You can get a key from the Mapbox website.
             </AlertDescription>
           </Alert>
       )
@@ -131,7 +132,7 @@ export default function LogisticsClient() {
             <Map
                 mapboxAccessToken={mapboxToken}
                 initialViewState={initialViewState}
-                mapStyle="mapbox://styles/mapbox/streets-v11"
+                mapStyle={theme === 'dark' ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/streets-v11"}
             >
                 {routeGeoJSON && (
                     <Source id="route-source" type="geojson" data={routeGeoJSON}>
@@ -183,7 +184,7 @@ export default function LogisticsClient() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isLoading || !mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE'}>
+              <Button type="submit" disabled={isLoading || !mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Optimize Route
               </Button>
