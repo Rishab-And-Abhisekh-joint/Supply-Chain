@@ -74,7 +74,7 @@ const geojson: FeatureCollection = {
             properties: {
                 type: transitData[type as TransitType].name,
                 color: transitData[type as TransitType].color,
-                orders: item.orders,
+                orders: JSON.stringify(item.orders), // Stringify to prevent issues with complex objects
             },
             geometry: {
                 type: 'LineString',
@@ -100,7 +100,6 @@ export default function LiveRoutesMap() {
     const mapRef = useRef<MapRef>(null);
     const { theme } = useTheme();
     const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
-    const [hoveredRouteId, setHoveredRouteId] = useState<string | null>(null);
 
     const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
 
@@ -110,11 +109,22 @@ export default function LiveRoutesMap() {
             if (mapRef.current) mapRef.current.getCanvas().style.cursor = 'pointer';
 
             if (feature.geometry.type === 'LineString' && feature.properties) {
+                let orders = feature.properties.orders;
+                // GeoJSON properties can be stringified. We need to parse them back.
+                if (typeof orders === 'string') {
+                    try {
+                        orders = JSON.parse(orders);
+                    } catch (e) {
+                        console.error("Failed to parse orders:", e);
+                        orders = [];
+                    }
+                }
+                
                 setPopupInfo({
                     longitude: event.lngLat.lng,
                     latitude: event.lngLat.lat,
                     type: feature.properties.type,
-                    orders: feature.properties.orders,
+                    orders: Array.isArray(orders) ? orders : [],
                 });
             }
         }
