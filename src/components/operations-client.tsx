@@ -59,7 +59,7 @@ export default function OperationsClient() {
             message: template.message.replace('[ID]', (eventCounter.current % 10).toString()),
         };
 
-        setLiveEvents(prev => [...prev, newEvent].slice(-10)); // Keep only last 10 for display
+        setLiveEvents(prev => [...prev, newEvent]);
     }, 2000);
 
     return () => clearInterval(eventInterval);
@@ -68,13 +68,7 @@ export default function OperationsClient() {
   const handleEventTransition = (event: Event) => {
       setLiveEvents(prev => prev.filter(e => e.id !== event.id));
       if (event.type !== 'Normal') {
-          setFlaggedEvents(prev => {
-              const newFlagged = [...prev, event];
-              if (newFlagged.length > 20) {
-                  return newFlagged.slice(newFlagged.length - 20);
-              }
-              return newFlagged;
-          });
+          setFlaggedEvents(prev => [...prev, event]);
       }
   };
 
