@@ -1,95 +1,199 @@
+
 "use client";
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Loader2, AlertTriangle, CheckCircle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Loader2, AlertTriangle, CheckCircle, Waves } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Textarea } from "@/components/ui/textarea";
 import { getAnomalySummary } from "@/app/operations/actions";
 import { useToast } from "@/hooks/use-toast";
 import type { SummarizeAnomaliesOutput } from "@/ai/flows/summarize-anomalies";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { cn } from "@/lib/utils";
 
-const formSchema = z.object({
-  eventStream: z.string().min(1, "Event stream cannot be empty."),
-});
+type EventType = "Normal" | "Suspicious" | "Anomalous";
+
+interface Event {
+  id: number;
+  message: string;
+  type: EventType;
+}
+
+const eventTemplates = [
+  { type: "Normal" as EventType, message: "Shipment #SHIP-00[ID] departed from warehouse A." },
+  { type: "Normal" as EventType, message: "Inventory for product #PROD-0[ID] updated." },
+  { type: "Normal" as EventType, message: "Delivery #DEL-99[ID] completed successfully." },
+  { type: "Suspicious" as EventType, message: "Temperature spike detected in refrigerated unit #TEMP-0[ID]." },
+  { type: "Suspicious" as EventType, message: "Vehicle #TRK-1[ID] reports minor route deviation." },
+  { type: "Anomalous" as EventType, message: "Major delay reported for shipment #SHIP-0[ID]. ETA pushed by 8 hours." },
+  { type: "Anomalous" as EventType, message: "System reports unexpected stock depletion for #PROD-0[ID]." },
+];
+
+const eventTypeConfig: Record<EventType, { variant: "secondary" | "default" | "destructive", label: string }> = {
+    'Normal': { variant: 'secondary', label: 'Normal' },
+    'Suspicious': { variant: 'default', label: 'Suspicious' },
+    'Anomalous': { variant: 'destructive', label: 'Anomalous' },
+}
 
 export default function OperationsClient() {
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<SummarizeAnomaliesOutput | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<SummarizeAnomaliesOutput | null>(null);
+  const [isStreamRunning, setIsStreamRunning] = useState(true);
+  const [liveEvents, setLiveEvents] = useState<Event[]>([]);
+  const [flaggedEvents, setFlaggedEvents] = useState<Event[]>([]);
+  
+  const eventCounter = useRef(0);
+  const streamContainerRef = useRef<HTMLDivElement>(null);
+  
   const { toast } = useToast();
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      eventStream:
-        "Event: Shipment ORD003 delayed. Current Location: Warehouse B. Reason: Vehicle maintenance. Expected Delay: 4 hours.\nEvent: Inventory level for Laptops at 200 units. Threshold: 250 units.\nEvent: Unexpected demand surge for Webcams in Region-West. Sales up 50%.\nEvent: Delivery truck TRK-05 reports flat tire. Location: I-5, mile 120. ETA impact: 2 hours.",
-    },
-  });
+  useEffect(() => {
+    if (!isStreamRunning) return;
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+    const eventInterval = setInterval(() => {
+        const template = eventTemplates[Math.floor(Math.random() * eventTemplates.length)];
+        const newEvent: Event = {
+            id: eventCounter.current++,
+            type: template.type,
+            message: template.message.replace('[ID]', (eventCounter.current % 10).toString()),
+        };
+
+        setLiveEvents(prev => [...prev, newEvent].slice(-10)); // Keep only last 10 for display
+    }, 2000);
+
+    return () => clearInterval(eventInterval);
+  }, [isStreamRunning]);
+
+  const handleEventTransition = (event: Event) => {
+      setLiveEvents(prev => prev.filter(e => e.id !== event.id));
+      if (event.type !== 'Normal') {
+          setFlaggedEvents(prev => {
+              const newFlagged = [...prev, event];
+              if (newFlagged.length > 20) {
+                  return newFlagged.slice(newFlagged.length - 20);
+              }
+              return newFlagged;
+          });
+      }
+  };
+
+  async function handleAnalyze() {
+    if (flaggedEvents.length === 0) {
+      toast({ title: "No Events to Analyze", description: "There are no suspicious or anomalous events to analyze." });
+      return;
+    }
+    
     setIsLoading(true);
-    setResult(null);
-    const response = await getAnomalySummary(values);
+    setAnalysisResult(null);
+    setIsStreamRunning(false);
+
+    const eventStream = flaggedEvents.map(e => `Event [${e.type}]: ${e.message}`).join('\n');
+    const response = await getAnomalySummary({ eventStream });
+    
     setIsLoading(false);
 
     if (response.success && response.data) {
-      setResult(response.data);
-      toast({ title: "Analysis Complete", description: "Event stream has been analyzed." });
+      setAnalysisResult(response.data);
+      toast({ title: "Analysis Complete", description: "Flagged events have been analyzed." });
     } else {
       toast({ variant: "destructive", title: "Error", description: response.error });
+      setIsStreamRunning(true);
     }
+  }
+  
+  const restartStream = () => {
+    setFlaggedEvents([]);
+    setAnalysisResult(null);
+    setIsStreamRunning(true);
   }
 
   return (
-    <div className="space-y-8">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <FormField
-            control={form.control}
-            name="eventStream"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Real-time Event Stream</FormLabel>
-                <FormControl>
-                  <Textarea
-                    placeholder="Paste event stream data here..."
-                    className="h-40"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Waves className="h-5 w-5 text-primary"/>
+              Live Event Stream
+            </CardTitle>
+            <CardDescription>
+                Real-time events from the supply chain. New events appear from the bottom.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="relative h-96 w-full overflow-hidden rounded-md border bg-muted/20 p-4">
+               <div 
+                 ref={streamContainerRef} 
+                 className="absolute inset-0 flex flex-col-reverse justify-start p-4 space-y-2 space-y-reverse"
+               >
+                {liveEvents.map(event => (
+                    <div 
+                        key={event.id}
+                        className={cn(
+                          "animate-scroll-up p-2 rounded-md shadow-sm opacity-0",
+                           event.type === 'Normal' && 'animate-filter-normal',
+                           event.type !== 'Normal' && 'animate-filter-anomaly'
+                        )}
+                        onAnimationEnd={() => handleEventTransition(event)}
+                     >
+                        <Badge variant={eventTypeConfig[event.type].variant}>{eventTypeConfig[event.type].label}</Badge>
+                        <p className="ml-2 inline text-sm">{event.message}</p>
+                    </div>
+                ))}
+              </div>
+              <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-t from-transparent to-border/50 p-2 text-center font-medium text-primary">
+                FILTER
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+             <CardTitle>Flagged Events</CardTitle>
+             <CardDescription>Suspicious and anomalous events are collected here for analysis.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-96 w-full overflow-y-auto rounded-md border bg-muted/20 p-4 space-y-2">
+               {flaggedEvents.length === 0 && !analysisResult && (
+                   <div className="flex items-center justify-center h-full text-muted-foreground">
+                       <p>Waiting for events...</p>
+                   </div>
+               )}
+               {flaggedEvents.map(event => (
+                    <div key={event.id} className="p-2 rounded-md bg-background shadow-sm">
+                       <Badge variant={eventTypeConfig[event.type].variant}>{eventTypeConfig[event.type].label}</Badge>
+                       <p className="ml-2 inline text-sm">{event.message}</p>
+                    </div>
+               ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+       <div className="flex justify-center">
+            {analysisResult ? (
+                 <Button onClick={restartStream}>Start New Analysis</Button>
+            ) : (
+                <Button onClick={handleAnalyze} disabled={isLoading || flaggedEvents.length === 0} size="lg">
+                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Analyze Flagged Events ({flaggedEvents.length})
+                </Button>
             )}
-          />
-          <Button type="submit" disabled={isLoading}>
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Analyze Events
-          </Button>
-        </form>
-      </Form>
+        </div>
+
 
       {isLoading && (
         <div className="text-center">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-            <p className="mt-2 text-muted-foreground">Analyzing event stream...</p>
+            <p className="mt-2 text-muted-foreground">Analyzing events...</p>
         </div>
       )}
 
-      {result && (
+      {analysisResult && (
         <div className="space-y-6 pt-6">
-          <h3 className="text-lg font-semibold">Analysis Results</h3>
+          <h3 className="text-lg font-semibold text-center">Analysis Results</h3>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Card>
               <CardHeader className="flex flex-row items-center gap-2">
@@ -97,7 +201,7 @@ export default function OperationsClient() {
                 <CardTitle>Anomaly Summary</CardTitle>
               </CardHeader>
               <CardContent className="prose prose-sm dark:prose-invert max-w-none">
-                 <p>{result.summary}</p>
+                 <p>{analysisResult.summary}</p>
               </CardContent>
             </Card>
             <Card>
@@ -106,12 +210,47 @@ export default function OperationsClient() {
                 <CardTitle>Suggested Actions</CardTitle>
               </CardHeader>
               <CardContent className="prose prose-sm dark:prose-invert max-w-none">
-                <p>{result.suggestedActions}</p>
+                <p>{analysisResult.suggestedActions}</p>
               </CardContent>
             </Card>
           </div>
         </div>
       )}
+      <style jsx>{`
+        @keyframes scroll-up {
+            0% { transform: translateY(100%); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-400px); opacity: 0; }
+        }
+        .animate-scroll-up {
+            animation: scroll-up 10s linear forwards;
+        }
+
+        @keyframes filter-normal {
+             0%, 90% {  transform: translateX(0); }
+             100% { transform: translate(0, -50px); opacity: 0; }
+        }
+        .animate-filter-normal {
+            animation-name: scroll-up, filter-normal;
+            animation-duration: 10s, 1s;
+            animation-delay: 0s, 10s;
+            animation-timing-function: linear, ease-out;
+            animation-fill-mode: forwards, forwards;
+        }
+        
+        @keyframes filter-anomaly {
+             0%, 90% { transform: translateX(0); }
+             100% { transform: translate(calc(50vw - 100%), 50px); opacity: 0; }
+        }
+        .animate-filter-anomaly {
+             animation-name: scroll-up, filter-anomaly;
+            animation-duration: 10s, 1s;
+            animation-delay: 0s, 10s;
+            animation-timing-function: linear, ease-out;
+            animation-fill-mode: forwards, forwards;
+        }
+      `}</style>
     </div>
   );
 }
