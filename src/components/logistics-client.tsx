@@ -36,6 +36,9 @@ const mockLocations = [
     { name: "Blue Dart Warehouse, Chicago", address: "Chicago, IL" },
     { name: "FedEx Center, Houston", address: "Houston, TX" },
     { name: "Googleplex, Mountain View", address: "1600 Amphitheatre Parkway, Mountain View, CA" },
+    { name: "Apple Park, Cupertino", address: "1 Apple Park Way, Cupertino, CA" },
+    { name: "Starbucks Reserve, Seattle", address: "1124 Pike St, Seattle, WA" },
+    { name: "Tesla Gigafactory, Austin", address: "13101 Harold Green Road, Austin, TX" },
 ]
 
 const optimizationFormSchema = z.object({
@@ -61,12 +64,12 @@ const getRouteGeoJSON = (origin: string, destination: string): GeoJSON.Feature<G
     // Super simplified geocoding for common US cities for demo purposes
     const locations: {[key: string]: [number, number]} = {
         "new york, ny": [-74.0060, 40.7128],
-        "los angeles, ca": [-118.2437, 34.0522],
         "chicago, il": [-87.6298, 41.8781],
         "houston, tx": [-95.3698, 29.7604],
-        "phoenix, az": [-112.0740, 33.4484],
         "1600 amphitheatre parkway, mountain view, ca": [-122.084, 37.422],
-        "1 infinite loop, cupertino, ca": [-122.0322, 37.3318]
+        "1 apple park way, cupertino, ca": [-122.0322, 37.3318],
+        "1124 pike st, seattle, wa": [-122.330, 47.614],
+        "13101 harold green road, austin, tx": [-97.620, 30.224],
     }
     const originCoords = locations[origin.toLowerCase()] || [-98.5795, 39.8283];
     const destinationCoords = locations[destination.toLowerCase()] || [-98.5795, 39.8283];
@@ -107,7 +110,7 @@ export default function LogisticsClient() {
     resolver: zodResolver(optimizationFormSchema),
     defaultValues: {
       origin: "1600 Amphitheatre Parkway, Mountain View, CA",
-      destination: "1 Infinite Loop, Cupertino, CA",
+      destination: "1 Apple Park Way, Cupertino, CA",
     },
   });
 
@@ -253,9 +256,20 @@ export default function LogisticsClient() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Destination</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter ending address" {...field} />
-                    </FormControl>
+                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a destination location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {mockLocations.map(location => (
+                           <SelectItem key={location.name} value={location.address}>
+                            {location.name}
+                           </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
