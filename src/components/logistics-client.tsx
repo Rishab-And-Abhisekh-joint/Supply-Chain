@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X } from "lucide-react";
+import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit } from "lucide-react";
 import Map, { Source, Layer } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTheme } from "next-themes";
@@ -27,11 +27,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Badge } from "./ui/badge";
+import { Textarea } from "./ui/textarea";
 
-const formSchema = z.object({
+const optimizationFormSchema = z.object({
   origin: z.string().min(1, "Origin address is required."),
   destination: z.string().min(1, "Destination address is required."),
 });
+
+const manualRouteFormSchema = z.object({
+  optimalRouteSummary: z.string().min(1, "Route summary is required."),
+  estimatedTime: z.string().min(1, "Estimated time is required."),
+  estimatedDistance: z.string().min(1, "Estimated distance is required."),
+})
 
 const initialViewState = {
   longitude: -98.5795,
@@ -71,6 +78,7 @@ export default function LogisticsClient() {
   const [proposedResult, setProposedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
   const [confirmedResult, setConfirmedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
   const [routeGeoJSON, setRouteGeoJSON] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+  const [postRejectionStep, setPostRejectionStep] = useState<'idle' | 'prompt' | 'manual_entry'>('idle');
   const { toast } = useToast();
   const { theme } = useTheme();
   const [primaryColor, setPrimaryColor] = useState("");
@@ -86,19 +94,29 @@ export default function LogisticsClient() {
     }
   }, [theme]);
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
+  const optimizationForm = useForm<z.infer<typeof optimizationFormSchema>>({
+    resolver: zodResolver(optimizationFormSchema),
     defaultValues: {
       origin: "1600 Amphitheatre Parkway, Mountain View, CA",
       destination: "1 Infinite Loop, Cupertino, CA",
     },
   });
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+  const manualRouteForm = useForm<z.infer<typeof manualRouteFormSchema>>({
+    resolver: zodResolver(manualRouteFormSchema),
+    defaultValues: {
+      optimalRouteSummary: "",
+      estimatedTime: "",
+      estimatedDistance: "",
+    },
+  })
+
+  async function onOptimizationSubmit(values: z.infer<typeof optimizationFormSchema>) {
     setIsLoading(true);
     setProposedResult(null);
     setConfirmedResult(null);
     setRouteGeoJSON(null);
+    setPostRejectionStep('idle');
 
     const aiResponse = await getLogisticsOptimization(values);
 
@@ -113,6 +131,17 @@ export default function LogisticsClient() {
     setIsLoading(false);
   }
 
+  function onManualSubmit(values: z.infer<typeof manualRouteFormSchema>) {
+    const manualResult: OptimizeLogisticsDecisionsOutput = {
+      ...values,
+      reasoning: "Manually entered by user.",
+      confirmation: true,
+    }
+    setConfirmedResult(manualResult);
+    setPostRejectionStep('idle');
+    toast({ title: "Route Confirmed", description: "The manual logistics plan has been finalized." });
+  }
+
   const handleAccept = () => {
     if (proposedResult) {
       setConfirmedResult({ ...proposedResult, confirmation: true });
@@ -123,8 +152,13 @@ export default function LogisticsClient() {
 
   const handleReject = () => {
     setProposedResult(null);
-    setRouteGeoJSON(null);
+    setPostRejectionStep('prompt');
     toast({ variant: "destructive", title: "Route Rejected", description: "The proposed route was rejected." });
+  }
+
+  const handleTryAiAgain = () => {
+    setPostRejectionStep('idle');
+    onOptimizationSubmit(optimizationForm.getValues());
   }
 
   const result = confirmedResult || proposedResult;
@@ -175,10 +209,10 @@ export default function LogisticsClient() {
     <div className="space-y-8">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <div className="space-y-6">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Form {...optimizationForm}>
+            <form onSubmit={optimizationForm.handleSubmit(onOptimizationSubmit)} className="space-y-6">
               <FormField
-                control={form.control}
+                control={optimizationForm.control}
                 name="origin"
                 render={({ field }) => (
                   <FormItem>
@@ -191,7 +225,7 @@ export default function LogisticsClient() {
                 )}
               />
               <FormField
-                control={form.control}
+                control={optimizationForm.control}
                 name="destination"
                 render={({ field }) => (
                   <FormItem>
@@ -209,6 +243,83 @@ export default function LogisticsClient() {
               </Button>
             </form>
           </Form>
+          
+          {postRejectionStep === 'prompt' && !isLoading && (
+            <Card className="bg-muted dark:bg-muted/50">
+                <CardHeader>
+                    <CardTitle className="text-base">What's Next?</CardTitle>
+                    <CardDescription>The AI's suggestion was rejected. How would you like to proceed?</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col sm:flex-row gap-4">
+                    <Button onClick={handleTryAiAgain} className="w-full">
+                        <RefreshCw className="mr-2 h-4 w-4" /> Try AI Again
+                    </Button>
+                    <Button onClick={() => setPostRejectionStep('manual_entry')} variant="outline" className="w-full">
+                        <Edit className="mr-2 h-4 w-4" /> Enter Manually
+                    </Button>
+                </CardContent>
+            </Card>
+          )}
+
+          {postRejectionStep === 'manual_entry' && !isLoading && (
+             <Card>
+                <CardHeader>
+                    <CardTitle>Enter Manual Route</CardTitle>
+                    <CardDescription>Please provide the details for your custom route.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Form {...manualRouteForm}>
+                        <form onSubmit={manualRouteForm.handleSubmit(onManualSubmit)} className="space-y-4">
+                            <FormField
+                                control={manualRouteForm.control}
+                                name="optimalRouteSummary"
+                                render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Route Summary</FormLabel>
+                                    <FormControl>
+                                    <Textarea placeholder="e.g., Take I-280 S to N De Anza Blvd..." {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                                )}
+                            />
+                            <div className="flex gap-4">
+                                <FormField
+                                    control={manualRouteForm.control}
+                                    name="estimatedTime"
+                                    render={({ field }) => (
+                                    <FormItem className="flex-1">
+                                        <FormLabel>Estimated Time</FormLabel>
+                                        <FormControl>
+                                        <Input placeholder="e.g., 25 mins" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={manualRouteForm.control}
+                                    name="estimatedDistance"
+                                    render={({ field }) => (
+                                    <FormItem className="flex-1">
+                                        <FormLabel>Estimated Distance</FormLabel>
+                                        <FormControl>
+                                        <Input placeholder="e.g., 10.5 miles" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                    )}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button type="button" variant="ghost" onClick={() => setPostRejectionStep('prompt')}>Back</Button>
+                                <Button type="submit">Confirm Manual Route</Button>
+                            </div>
+                        </form>
+                    </Form>
+                </CardContent>
+            </Card>
+          )}
 
           {isLoading && (
             <div className="text-center">
@@ -217,7 +328,7 @@ export default function LogisticsClient() {
             </div>
           )}
 
-          {result && (
+          {result && postRejectionStep === 'idle' && (
             <div className="space-y-6 pt-6">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold">
@@ -303,3 +414,5 @@ export default function LogisticsClient() {
     </div>
   );
 }
+
+    
