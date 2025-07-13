@@ -90,6 +90,11 @@ const AdminTooltip = ({ active, payload, label }: TooltipProps<number, string>) 
 const CustomizedLabel = (props: any) => {
     const { x, y, width, value, view, dataKey } = props;
     const item = props.payload;
+    
+    if (!item || !item.warehouses) {
+        return null;
+    }
+
     const total = item.warehouses.reduce((sum: number, w: WarehouseStock) => sum + w.total, 0);
 
     const threshold = view === 'admin' ? ADMIN_CRITICAL_THRESHOLD : CRITICAL_THRESHOLD;
