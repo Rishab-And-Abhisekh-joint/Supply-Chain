@@ -37,13 +37,23 @@ export default function DashboardPage() {
     const inventoryInterval = setInterval(() => {
         setInventoryData(prevData => {
             const newData = prevData.map(item => {
-                const change = (Math.floor(Math.random() * 100) - 45); // Fluctuate between -45 and +54
+                // Occasionally force a drop below critical for demonstration
+                const forceCritical = item.name === 'Webcams' && Math.random() > 0.8;
+                let change;
+                if (forceCritical) {
+                    change = -(item.total - 900); // Drop to just below 1000
+                } else {
+                    change = (Math.floor(Math.random() * 100) - 45); // Fluctuate between -45 and +54
+                }
                 const newTotal = Math.max(0, item.total + change);
                 return { name: item.name, total: newTotal, previous: item.total };
             });
             
-            setPreviousInventory(calculateTotal(prevData));
-            setTotalInventory(calculateTotal(newData));
+            const currentTotal = calculateTotal(prevData);
+            const newTotalInventory = calculateTotal(newData);
+            
+            setPreviousInventory(currentTotal);
+            setTotalInventory(newTotalInventory);
             
             return newData;
         });
@@ -57,8 +67,8 @@ export default function DashboardPage() {
 
   const inventoryChange = totalInventory - previousInventory;
   const percentageChange = previousInventory === 0 ? 0 : (inventoryChange / previousInventory) * 100;
-  const changeColor = percentageChange >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500';
-  const changePrefix = percentageChange >= 0 ? '+' : '';
+  const changeColor = inventoryChange >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500';
+  const changePrefix = inventoryChange >= 0 ? '+' : '';
 
   return (
     <div className="space-y-6">
@@ -73,7 +83,7 @@ export default function DashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold">{totalInventory.toLocaleString()} units</div>
             <p className={`text-xs ${changeColor}`}>
-              {changePrefix}{percentageChange.toFixed(2)}% from last update
+              {changePrefix}{inventoryChange.toLocaleString()} ({changePrefix}{percentageChange.toFixed(2)}%)
             </p>
           </CardContent>
         </Card>
