@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit, Truck } from "lucide-react";
@@ -32,17 +32,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 
-
-const mockLocations = [
-    { name: "DTDC Hub, New York", address: "New York, NY" },
-    { name: "Blue Dart Warehouse, Chicago", address: "Chicago, IL" },
-    { name: "FedEx Center, Houston", address: "Houston, TX" },
-    { name: "Googleplex, Mountain View", address: "1600 Amphitheatre Parkway, Mountain View, CA" },
-    { name: "Apple Park, Cupertino", address: "1 Apple Park Way, Cupertino, CA" },
-    { name: "Starbucks Reserve, Seattle", address: "1124 Pike St, Seattle, WA" },
-    { name: "Tesla Gigafactory, Austin", address: "13101 Harold Green Road, Austin, TX" },
-]
-
 const optimizationFormSchema = z.object({
   origin: z.string().min(1, "Origin address is required."),
   destination: z.string().min(1, "Destination address is required."),
@@ -60,16 +49,23 @@ const orderDetailsSchema = z.object({
 });
 
 
+const mockLocations = [
+    { name: "DTDC Hub, New York", address: "New York, NY" },
+    { name: "Blue Dart Warehouse, Chicago", address: "Chicago, IL" },
+    { name: "FedEx Center, Houston", address: "Houston, TX" },
+    { name: "Googleplex, Mountain View", address: "1600 Amphitheatre Parkway, Mountain View, CA" },
+    { name: "Apple Park, Cupertino", address: "1 Apple Park Way, Cupertino, CA" },
+    { name: "Starbucks Reserve, Seattle", address: "1124 Pike St, Seattle, WA" },
+    { name: "Tesla Gigafactory, Austin", address: "13101 Harold Green Road, Austin, TX" },
+]
+
 const initialViewState = {
   longitude: -98.5795,
   latitude: 39.8283,
   zoom: 3.5
 };
 
-// A very basic approximation to get a "route" for the map.
-// In a real app, you would use a directions API.
 const getRouteData = (origin: string, destination: string): { geojson: GeoJSON.Feature<GeoJSON.LineString>, bounds: LngLatBoundsLike } => {
-    // Super simplified geocoding for common US cities for demo purposes
     const locations: {[key: string]: [number, number]} = {
         "new york, ny": [-74.0060, 40.7128],
         "chicago, il": [-87.6298, 41.8781],
@@ -100,6 +96,142 @@ const getRouteData = (origin: string, destination: string): { geojson: GeoJSON.F
     };
 }
 
+interface FinalizeOrderDialogProps {
+  isOrderDialogOpen: boolean;
+  setIsOrderDialogOpen: (open: boolean) => void;
+  orderStep: number;
+  setOrderStep: (step: number) => void;
+  orderDetailsForm: UseFormReturn<z.infer<typeof orderDetailsSchema>>;
+  optimizationForm: UseFormReturn<z.infer<typeof optimizationFormSchema>>;
+  handlePlaceOrder: () => void;
+  confirmedResult: OptimizeLogisticsDecisionsOutput | null;
+}
+
+function FinalizeOrderDialog({
+  isOrderDialogOpen,
+  setIsOrderDialogOpen,
+  orderStep,
+  setOrderStep,
+  orderDetailsForm,
+  optimizationForm,
+  handlePlaceOrder,
+  confirmedResult,
+}: FinalizeOrderDialogProps) {
+    const estimatedCost = confirmedResult ? (orderDetailsForm.getValues('packageCount') * 25.50).toFixed(2) : '0.00';
+    const totalCost = (parseFloat(estimatedCost) * 1.08).toFixed(2); // with 8% tax
+    const advancePayment = (parseFloat(totalCost) * 0.20).toFixed(2); // 20% advance
+
+    return (
+      <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
+        <DialogTrigger asChild>
+          <Button className="w-full">
+            <Truck className="mr-2 h-4 w-4" />
+            Finalize and Place Order
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Place Your Order</DialogTitle>
+            <DialogDescription>
+              {orderStep === 1
+                ? 'Confirm package details to get an estimated cost.'
+                : 'Review the final details and confirm your order.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {orderStep === 1 && (
+            <Form {...orderDetailsForm}>
+              <form
+                onSubmit={orderDetailsForm.handleSubmit(() => setOrderStep(2))}
+                className="space-y-4"
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={orderDetailsForm.control}
+                    name="packageCount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>No. of Packages</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={orderDetailsForm.control}
+                    name="packageSize"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Avg. Package Size</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <Card className="bg-muted/50">
+                  <CardContent className="pt-6 text-sm space-y-2">
+                    <p>
+                      <strong>Route:</strong>{' '}
+                      {optimizationForm.getValues('origin')} to{' '}
+                      {optimizationForm.getValues('destination')}
+                    </p>
+                    <p>
+                      <strong>Est. Cost:</strong> ${estimatedCost}
+                    </p>
+                    <p>
+                      <strong>Est. Arrival:</strong>{' '}
+                      {new Date(
+                        Date.now() + 2 * 24 * 60 * 60 * 1000
+                      ).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                </Card>
+                <DialogFooter>
+                  <Button type="submit">Place Order</Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          )}
+
+          {orderStep === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Your order for {orderDetailsForm.getValues('packageCount')}{' '}
+                package(s) is almost ready. Please review and confirm.
+              </p>
+              <Card>
+                <CardContent className="pt-6 space-y-2">
+                  <div className="flex justify-between font-medium">
+                    <span>Total Estimated Cost</span>
+                    <span>${totalCost}</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>(includes 8% tax)</span>
+                  </div>
+                  <hr className="my-2" />
+                  <div className="flex justify-between font-bold text-primary text-lg">
+                    <span>Advance Payment Due</span>
+                    <span>${advancePayment}</span>
+                  </div>
+                </CardContent>
+              </Card>
+              <DialogFooter className="sm:justify-between">
+                <Button variant="ghost" onClick={() => setOrderStep(1)}>
+                  Back
+                </Button>
+                <Button onClick={handlePlaceOrder}>Confirm & Pay</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+}
 
 export default function LogisticsClient() {
   const [isLoading, setIsLoading] = useState(false);
@@ -150,7 +282,6 @@ export default function LogisticsClient() {
     },
   });
 
-
   async function onOptimizationSubmit(values: z.infer<typeof optimizationFormSchema>) {
     setIsLoading(true);
     setProposedResult(null);
@@ -176,7 +307,6 @@ export default function LogisticsClient() {
       setRouteGeoJSON(geojson);
       setTimeout(() => mapRef.current?.fitBounds(bounds, { padding: 80, duration: 1000 }), 100);
   };
-
 
   function onManualSubmit(values: z.infer<typeof manualRouteFormSchema>) {
     const manualResult: OptimizeLogisticsDecisionsOutput = {
@@ -222,7 +352,7 @@ export default function LogisticsClient() {
       });
       toast({ title: "Order Placed!", description: "Your shipment has been scheduled." });
   }
-
+  
   const result = confirmedResult || proposedResult;
   
   const renderMap = () => {
@@ -267,10 +397,6 @@ export default function LogisticsClient() {
         </div>
     );
   };
-  
-  const estimatedCost = confirmedResult ? (orderDetailsForm.getValues('packageCount') * 25.50).toFixed(2) : '0.00';
-  const totalCost = (parseFloat(estimatedCost) * 1.08).toFixed(2); // with 8% tax
-  const advancePayment = (parseFloat(totalCost) * 0.20).toFixed(2); // 20% advance
 
   return (
     <div className="space-y-8">
@@ -312,7 +438,7 @@ export default function LogisticsClient() {
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a destination location" />
-                        </Trigger>
+                        </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         {mockLocations.map(location => (
@@ -502,93 +628,16 @@ export default function LogisticsClient() {
             </Card>
 
             {confirmedResult && (
-                <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
-                    <DialogTrigger asChild>
-                         <Button className="w-full">
-                            <Truck className="mr-2 h-4 w-4" />
-                            Finalize and Place Order
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                         <DialogHeader>
-                            <DialogTitle>Place Your Order</DialogTitle>
-                            <DialogDescription>
-                                {orderStep === 1 ? "Confirm package details to get an estimated cost." : "Review the final details and confirm your order."}
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        {orderStep === 1 && (
-                             <Form {...orderDetailsForm}>
-                                <form onSubmit={orderDetailsForm.handleSubmit(() => setOrderStep(2))} className="space-y-4">
-                                     <div className="grid grid-cols-2 gap-4">
-                                        <FormField
-                                            control={orderDetailsForm.control}
-                                            name="packageCount"
-                                            render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>No. of Packages</FormLabel>
-                                                <FormControl>
-                                                    <Input type="number" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                            )}
-                                        />
-                                         <FormField
-                                            control={orderDetailsForm.control}
-                                            name="packageSize"
-                                            render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Avg. Package Size</FormLabel>
-                                                <FormControl>
-                                                    <Input {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                            )}
-                                        />
-                                    </div>
-                                    <Card className="bg-muted/50">
-                                        <CardContent className="pt-6 text-sm space-y-2">
-                                            <p><strong>Route:</strong> {optimizationForm.getValues('origin')} to {optimizationForm.getValues('destination')}</p>
-                                            <p><strong>Est. Cost:</strong> ${estimatedCost}</p>
-                                            <p><strong>Est. Arrival:</strong> {new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString()}</p>
-                                        </CardContent>
-                                    </Card>
-                                    <DialogFooter>
-                                        <Button type="submit">Place Order</Button>
-                                    </DialogFooter>
-                                </form>
-                            </Form>
-                        )}
-                        
-                        {orderStep === 2 && (
-                            <div className="space-y-4">
-                                <p className="text-sm text-muted-foreground">Your order for {orderDetailsForm.getValues('packageCount')} package(s) is almost ready. Please review and confirm.</p>
-                                <Card>
-                                    <CardContent className="pt-6 space-y-2">
-                                        <div className="flex justify-between font-medium">
-                                            <span>Total Estimated Cost</span>
-                                            <span>${totalCost}</span>
-                                        </div>
-                                         <div className="flex justify-between text-muted-foreground">
-                                            <span>(includes 8% tax)</span>
-                                        </div>
-                                        <hr className="my-2"/>
-                                        <div className="flex justify-between font-bold text-primary text-lg">
-                                            <span>Advance Payment Due</span>
-                                            <span>${advancePayment}</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                                 <DialogFooter className="sm:justify-between">
-                                    <Button variant="ghost" onClick={() => setOrderStep(1)}>Back</Button>
-                                    <Button onClick={handlePlaceOrder}>Confirm & Pay</Button>
-                                </DialogFooter>
-                            </div>
-                        )}
-                    </DialogContent>
-                </Dialog>
+              <FinalizeOrderDialog 
+                isOrderDialogOpen={isOrderDialogOpen}
+                setIsOrderDialogOpen={setIsOrderDialogOpen}
+                orderStep={orderStep}
+                setOrderStep={setOrderStep}
+                orderDetailsForm={orderDetailsForm}
+                optimizationForm={optimizationForm}
+                handlePlaceOrder={handlePlaceOrder}
+                confirmedResult={confirmedResult}
+              />
             )}
         </div>
       </div>
