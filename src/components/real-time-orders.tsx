@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -11,7 +12,18 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { useToast } from '@/hooks/use-toast';
 
 export interface Order {
   id: string;
@@ -30,6 +42,13 @@ interface RealTimeOrdersProps {
     orders: Order[];
     onOrderSelect: (orderId: string | null) => void;
     selectedOrderId: string | null;
+    onPayDue: (orderId: string, amount: number) => void;
+}
+
+interface PaymentDialogState {
+    isOpen: boolean;
+    order: Order | null;
+    amount: string;
 }
 
 type StatusVariant = "default" | "secondary" | "outline" | "destructive";
@@ -42,11 +61,35 @@ const statusVariantMap: Record<Order['status'], StatusVariant> = {
 };
 
 const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
 }
 
-export default function RealTimeOrders({ orders, onOrderSelect, selectedOrderId }: RealTimeOrdersProps) {
+export default function RealTimeOrders({ orders, onOrderSelect, selectedOrderId, onPayDue }: RealTimeOrdersProps) {
+  const [paymentDialog, setPaymentDialog] = useState<PaymentDialogState>({ isOpen: false, order: null, amount: '' });
+  const { toast } = useToast();
+
+  const handlePayClick = (order: Order) => {
+    const amountDue = order.totalAmount - order.amountPaid;
+    setPaymentDialog({ isOpen: true, order, amount: String(amountDue.toFixed(2)) });
+  };
+
+  const handlePaymentSubmit = () => {
+    if (paymentDialog.order && paymentDialog.amount) {
+      const paymentAmount = parseFloat(paymentDialog.amount);
+      if (paymentAmount > 0) {
+        onPayDue(paymentDialog.order.id, paymentAmount);
+        toast({
+          title: "Payment Submitted",
+          description: `${formatCurrency(paymentAmount)} has been paid for Order ${paymentDialog.order.id}.`,
+        });
+        setPaymentDialog({ isOpen: false, order: null, amount: '' });
+      }
+    }
+  };
+
+
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -89,8 +132,17 @@ export default function RealTimeOrders({ orders, onOrderSelect, selectedOrderId 
                     <TableCell>{order.deliveryType}</TableCell>
                     <TableCell className="text-right">
                         <div>{formatCurrency(order.totalAmount)}</div>
-                        {amountDue > 0 ? (
-                             <div className="text-xs text-destructive">Due: {formatCurrency(amountDue)}</div>
+                        {amountDue > 0.01 ? (
+                             <Button 
+                                variant="link"
+                                className="p-0 h-auto text-xs text-destructive"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePayClick(order);
+                                }}
+                             >
+                                Due: {formatCurrency(amountDue)}
+                             </Button>
                         ) : (
                              <div className="text-xs text-green-600">Paid in full</div>
                         )}
@@ -100,5 +152,34 @@ export default function RealTimeOrders({ orders, onOrderSelect, selectedOrderId 
         })}
       </TableBody>
     </Table>
+    
+    <Dialog open={paymentDialog.isOpen} onOpenChange={(isOpen) => setPaymentDialog(prev => ({ ...prev, isOpen }))}>
+        <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+                <DialogTitle>Make a Payment</DialogTitle>
+                <DialogDescription>
+                    Enter the amount to pay for Order {paymentDialog.order?.id}.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="amount" className="text-right">
+                        Amount (₹)
+                    </Label>
+                    <Input
+                        id="amount"
+                        type="number"
+                        value={paymentDialog.amount}
+                        onChange={(e) => setPaymentDialog(prev => ({...prev, amount: e.target.value}))}
+                        className="col-span-3"
+                    />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button onClick={handlePaymentSubmit}>Pay Now</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    </>
   );
 }

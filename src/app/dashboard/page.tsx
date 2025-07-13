@@ -29,6 +29,27 @@ const initialOrders: Order[] = [
     { id: 'ORD998', customerName: 'Sophia Davis', customerId: 'CUST007', orderDate: '2023-10-25', expectedDate: '2023-11-03', status: 'Processing', deliveryType: 'Train', totalAmount: 800.00, amountPaid: 200.00, transitId: null },
 ];
 
+const generateNewOrder = (orderCount: number): Order => {
+    const newId = `ORD${1000 + orderCount}`;
+    const customers = [['Lucas', 'Martinez'], ['Chloe', 'Garcia'], ['Mason', 'Rodriguez'], ['Zoe', 'Lee']];
+    const customer = customers[orderCount % customers.length];
+    const total = Math.floor(Math.random() * 500) + 50;
+    const paid = Math.random() > 0.6 ? total : Math.floor(Math.random() * total);
+    return {
+        id: newId,
+        customerName: `${customer[0]} ${customer[1]}`,
+        customerId: `CUST${String(100 + orderCount).padStart(3, '0')}`,
+        orderDate: new Date().toISOString().split('T')[0],
+        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        status: 'Processing',
+        deliveryType: 'Truck',
+        totalAmount: total,
+        amountPaid: paid,
+        transitId: null
+    };
+}
+
+
 const calculateTotal = (data: InventoryData[]) => data.reduce((sum, item) => sum + item.total, 0);
 
 export default function DashboardPage() {
@@ -40,12 +61,14 @@ export default function DashboardPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Anomaly simulation
     const anomalyInterval = setInterval(() => {
       if (Math.random() > 0.7) { 
           setAnomalyCount(prev => prev + 1);
       }
     }, 4000);
 
+    // Inventory simulation
     const inventoryInterval = setInterval(() => {
         setInventoryData(prevData => {
             const newData = prevData.map(item => {
@@ -70,7 +93,8 @@ export default function DashboardPage() {
         });
     }, 5000);
     
-    const orderInterval = setInterval(() => {
+    // Order status simulation
+    const orderStatusInterval = setInterval(() => {
         setOrders(prevOrders => {
             const orderToUpdateIndex = Math.floor(Math.random() * prevOrders.length);
             return prevOrders.map((order, index) => {
@@ -84,12 +108,38 @@ export default function DashboardPage() {
         });
     }, 7000);
 
+    // New order simulation
+    const newOrderInterval = setInterval(() => {
+        setOrders(prev => [generateNewOrder(prev.length), ...prev]);
+    }, 15000);
+    
+    // Completed order cleanup
+    const cleanupInterval = setInterval(() => {
+        setOrders(prev => prev.filter(order => {
+            const isDelivered = order.status === 'Delivered';
+            const isPaid = order.amountPaid >= order.totalAmount;
+            return !isDelivered || !isPaid;
+        }));
+    }, 10000);
+
     return () => {
         clearInterval(anomalyInterval);
         clearInterval(inventoryInterval);
-        clearInterval(orderInterval);
+        clearInterval(orderStatusInterval);
+        clearInterval(newOrderInterval);
+        clearInterval(cleanupInterval);
     };
   }, []);
+
+  const handlePayment = (orderId: string, amount: number) => {
+    setOrders(prev => prev.map(order => {
+        if (order.id === orderId) {
+            const newAmountPaid = Math.min(order.totalAmount, order.amountPaid + amount);
+            return { ...order, amountPaid: newAmountPaid };
+        }
+        return order;
+    }));
+  };
 
   const inventoryChange = totalInventory - previousInventory;
   const percentageChange = previousInventory === 0 ? 0 : (inventoryChange / previousInventory) * 100;
@@ -172,7 +222,12 @@ export default function DashboardPage() {
           <CardDescription>Live overview of incoming and in-transit orders.</CardDescription>
         </CardHeader>
         <CardContent>
-          <RealTimeOrders orders={orders} onOrderSelect={setSelectedOrderId} selectedOrderId={selectedOrderId} />
+          <RealTimeOrders 
+            orders={orders} 
+            onOrderSelect={setSelectedOrderId} 
+            selectedOrderId={selectedOrderId}
+            onPayDue={handlePayment}
+            />
         </CardContent>
       </Card>
     </div>
