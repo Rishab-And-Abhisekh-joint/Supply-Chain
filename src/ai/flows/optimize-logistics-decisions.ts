@@ -23,6 +23,7 @@ const OptimizeLogisticsDecisionsOutputSchema = z.object({
   estimatedTime: z.string().describe('The estimated travel time for the optimal route.'),
   estimatedDistance: z.string().describe('The estimated travel distance for the optimal route.'),
   reasoning: z.string().describe('The AI agent’s reasoning for choosing this route, considering factors like traffic and efficiency.'),
+  confirmation: z.boolean().default(false).describe('Whether the user has confirmed the route.'),
 });
 export type OptimizeLogisticsDecisionsOutput = z.infer<typeof OptimizeLogisticsDecisionsOutputSchema>;
 

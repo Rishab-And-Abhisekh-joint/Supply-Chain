@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle } from "lucide-react";
+import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X } from "lucide-react";
 import Map, { Source, Layer } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTheme } from "next-themes";
@@ -26,6 +26,7 @@ import type { OptimizeLogisticsDecisionsOutput } from "@/ai/flows/optimize-logis
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Badge } from "./ui/badge";
 
 const formSchema = z.object({
   origin: z.string().min(1, "Origin address is required."),
@@ -67,7 +68,8 @@ const getRouteGeoJSON = (origin: string, destination: string): GeoJSON.Feature<G
 
 export default function LogisticsClient() {
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
+  const [proposedResult, setProposedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
+  const [confirmedResult, setConfirmedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
   const [routeGeoJSON, setRouteGeoJSON] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
   const { toast } = useToast();
   const { theme } = useTheme();
@@ -94,14 +96,15 @@ export default function LogisticsClient() {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    setResult(null);
+    setProposedResult(null);
+    setConfirmedResult(null);
     setRouteGeoJSON(null);
 
     const aiResponse = await getLogisticsOptimization(values);
 
     if (aiResponse.success && aiResponse.data) {
-      setResult(aiResponse.data);
-      toast({ title: "Optimization Complete", description: "Logistics plan has been generated." });
+      setProposedResult(aiResponse.data);
+      toast({ title: "Route Proposed", description: "Please review and confirm the optimized route." });
       setRouteGeoJSON(getRouteGeoJSON(values.origin, values.destination));
     } else {
       toast({ variant: "destructive", title: "Error", description: aiResponse.error });
@@ -110,8 +113,24 @@ export default function LogisticsClient() {
     setIsLoading(false);
   }
 
+  const handleAccept = () => {
+    if (proposedResult) {
+      setConfirmedResult({ ...proposedResult, confirmation: true });
+      setProposedResult(null);
+      toast({ title: "Route Confirmed", description: "The logistics plan has been finalized." });
+    }
+  }
+
+  const handleReject = () => {
+    setProposedResult(null);
+    setRouteGeoJSON(null);
+    toast({ variant: "destructive", title: "Route Rejected", description: "The proposed route was rejected." });
+  }
+
+  const result = confirmedResult || proposedResult;
+
   const renderMap = () => {
-    if (!mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')) {
+    if (!mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')) {
       return (
          <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
@@ -184,7 +203,7 @@ export default function LogisticsClient() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isLoading || !mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')}>
+              <Button type="submit" disabled={isLoading || !mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Optimize Route
               </Button>
@@ -200,7 +219,30 @@ export default function LogisticsClient() {
 
           {result && (
             <div className="space-y-6 pt-6">
-              <h3 className="text-lg font-semibold">Optimization Results</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">
+                    {proposedResult ? "Proposed Route" : "Confirmed Route"}
+                </h3>
+                {confirmedResult && <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Route Confirmed</Badge>}
+              </div>
+
+              {proposedResult && (
+                <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
+                  <CardHeader>
+                    <CardTitle className="text-base">Confirm Optimal Route</CardTitle>
+                    <CardDescription>Does this route meet your requirements?</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex gap-4">
+                      <Button onClick={handleAccept} className="w-full">
+                        <Check className="mr-2 h-4 w-4" /> Yes, Accept Route
+                      </Button>
+                      <Button onClick={handleReject} variant="destructive" className="w-full">
+                        <X className="mr-2 h-4 w-4" /> No, Reject
+                      </Button>
+                  </CardContent>
+                </Card>
+              )}
+
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                  <Card>
                     <CardHeader className="flex flex-row items-center gap-2 pb-2">
