@@ -3,9 +3,10 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle, PackagePlus, Pencil } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,12 +17,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { getDemandForecast } from "@/app/forecasting/actions";
 import { useToast } from "@/hooks/use-toast";
 import type { PredictProductDemandOutput } from "@/ai/flows/predict-product-demand";
 import DemandForecastChart from "./demand-forecast-chart";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const formSchema = z.object({
@@ -42,10 +42,19 @@ const forecastHorizons = [
     { label: "Next 12 Months", value: 12 },
 ];
 
+// Mock current inventory levels
+const currentInventory: { [key: string]: number } = {
+    "Laptops": 1250,
+    "Monitors": 2000,
+    "Keyboards": 4800,
+    "Mice": 5500,
+};
+
 export default function ForecastingClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<PredictProductDemandOutput | null>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -70,6 +79,19 @@ export default function ForecastingClient() {
     }
   }
 
+  const handlePlaceOrder = (productName: string, quantity: number) => {
+    router.push(`/logistics?productName=${encodeURIComponent(productName)}&quantity=${quantity}`);
+  };
+
+  const handleEditForecast = () => {
+    setResult(null);
+  };
+  
+  const forecastedDemand = result ? result.forecastedDemand.reduce((a, b) => a + b, 0) : 0;
+  const currentStock = currentInventory[form.getValues('productName')] || 0;
+  const stockDifference = forecastedDemand - currentStock;
+  const needsReorder = result && stockDifference > 0;
+
   return (
     <div className="space-y-8">
       <Form {...form}>
@@ -81,7 +103,7 @@ export default function ForecastingClient() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Product Name</FormLabel>
-                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                   <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!!result}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a product" />
@@ -103,7 +125,7 @@ export default function ForecastingClient() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Historical Data</FormLabel>
-                   <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)}>
+                   <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)} disabled={!!result}>
                      <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a range" />
@@ -125,7 +147,7 @@ export default function ForecastingClient() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Forecast Horizon</FormLabel>
-                   <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)}>
+                   <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)} disabled={!!result}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a horizon" />
@@ -143,10 +165,12 @@ export default function ForecastingClient() {
             />
           </div>
           
-          <Button type="submit" disabled={isLoading}>
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Generate Forecast
-          </Button>
+          {!result && (
+            <Button type="submit" disabled={isLoading}>
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Generate Forecast
+            </Button>
+          )}
         </form>
       </Form>
 
@@ -159,6 +183,47 @@ export default function ForecastingClient() {
 
       {result && (
         <div className="space-y-6 pt-6">
+            <Card className={needsReorder ? "border-amber-500 bg-amber-50 dark:bg-amber-900/20" : "border-green-500 bg-green-50 dark:bg-green-900/20"}>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <AlertTriangle className={needsReorder ? "text-amber-600" : "text-green-600"} />
+                        Replenishment Recommendation
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {needsReorder ? (
+                        <div>
+                            <p>
+                                Based on the forecast, you have a potential shortfall of <strong>{stockDifference.toLocaleString()} units</strong> for <strong>{form.getValues('productName')}</strong>.
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                Forecasted Demand: {forecastedDemand.toLocaleString()} | Current Stock: {currentStock.toLocaleString()}
+                            </p>
+                        </div>
+                    ) : (
+                        <div>
+                             <p>
+                                Your current inventory for <strong>{form.getValues('productName')}</strong> is sufficient to meet the forecasted demand.
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                Forecasted Demand: {forecastedDemand.toLocaleString()} | Current Stock: {currentStock.toLocaleString()} | Surplus: {(-stockDifference).toLocaleString()}
+                            </p>
+                        </div>
+                    )}
+                    <div className="flex gap-4">
+                        {needsReorder && (
+                            <Button onClick={() => handlePlaceOrder(form.getValues('productName'), stockDifference)}>
+                                <PackagePlus />
+                                Place Order for {stockDifference.toLocaleString()} units
+                            </Button>
+                        )}
+                        <Button variant="outline" onClick={handleEditForecast}>
+                            <Pencil />
+                            Edit Forecast
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
             <h3 className="text-lg font-semibold">Forecast Results</h3>
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                  <Card>
@@ -175,7 +240,7 @@ export default function ForecastingClient() {
                         <CardTitle>Forecasted Units</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-3xl font-bold">{result.forecastedDemand.reduce((a, b) => a + b, 0).toLocaleString()}</p>
+                        <p className="text-3xl font-bold">{forecastedDemand.toLocaleString()}</p>
                          <p className="text-sm text-muted-foreground">Total units over {form.getValues('forecastHorizon')} months</p>
                     </CardContent>
                 </Card>

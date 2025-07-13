@@ -48,6 +48,7 @@ const manualRouteFormSchema = z.object({
 const orderDetailsSchema = z.object({
   packageCount: z.coerce.number().int().min(1, "At least one package is required."),
   packageSize: z.string().min(1, "Package size is required (e.g., Medium)"),
+  packageDescription: z.string().optional(),
 });
 
 
@@ -147,6 +148,19 @@ function FinalizeOrderDialog({
                 onSubmit={orderDetailsForm.handleSubmit(() => setOrderStep(2))}
                 className="space-y-4"
               >
+                <FormField
+                    control={orderDetailsForm.control}
+                    name="packageDescription"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Package Contents</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., 2,500 Laptops" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={orderDetailsForm.control}
@@ -273,15 +287,23 @@ function LogisticsClientContent() {
     defaultValues: {
       packageCount: 1,
       packageSize: "Medium",
+      packageDescription: "",
     },
   });
 
   useEffect(() => {
     const originFromQuery = searchParams.get('origin');
+    const productName = searchParams.get('productName');
+    const quantity = searchParams.get('quantity');
+
     if (originFromQuery) {
         optimizationForm.setValue('origin', originFromQuery);
     }
-  }, [searchParams, optimizationForm]);
+    if (productName && quantity) {
+      orderDetailsForm.setValue('packageDescription', `${quantity} units of ${productName}`);
+      orderDetailsForm.setValue('packageCount', Math.ceil(parseInt(quantity) / 100)); // Assuming 100 units per package
+    }
+  }, [searchParams, optimizationForm, orderDetailsForm]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -663,5 +685,3 @@ export default function LogisticsClient() {
     </React.Suspense>
   )
 }
-
-    
