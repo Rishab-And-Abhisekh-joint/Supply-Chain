@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import InventoryChart, { type InventoryData } from "@/components/inventory-chart";
@@ -59,6 +59,8 @@ export default function DashboardPage() {
   const [previousInventory, setPreviousInventory] = useState(totalInventory);
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const orderCounter = useRef(initialOrders.length);
+
 
   useEffect(() => {
     // Anomaly simulation
@@ -110,7 +112,8 @@ export default function DashboardPage() {
 
     // New order simulation
     const newOrderInterval = setInterval(() => {
-        setOrders(prev => [generateNewOrder(prev.length), ...prev]);
+        orderCounter.current += 1;
+        setOrders(prev => [generateNewOrder(orderCounter.current), ...prev]);
     }, 15000);
     
     // Completed order cleanup
