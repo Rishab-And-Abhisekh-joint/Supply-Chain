@@ -1,12 +1,13 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle } from "lucide-react";
-import { GoogleMap, useJsApiLoader, DirectionsRenderer } from '@react-google-maps/api';
+import Map, { Source, Layer } from 'react-map-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 
 import { Button } from "@/components/ui/button";
 import {
@@ -30,29 +31,46 @@ const formSchema = z.object({
   destination: z.string().min(1, "Destination address is required."),
 });
 
-const mapContainerStyle = {
-  width: '100%',
-  height: '400px',
-  borderRadius: 'var(--radius)',
+const initialViewState = {
+  longitude: -98.5795,
+  latitude: 39.8283,
+  zoom: 3.5
 };
 
-const center = {
-  lat: 40.7128,
-  lng: -74.0060
-};
+// A very basic approximation to get a "route" for the map.
+// In a real app, you would use a directions API.
+const getRouteGeoJSON = (origin: string, destination: string): GeoJSON.Feature<GeoJSON.LineString> => {
+    // Super simplified geocoding for common US cities for demo purposes
+    const locations: {[key: string]: [number, number]} = {
+        "new york, ny": [-74.0060, 40.7128],
+        "los angeles, ca": [-118.2437, 34.0522],
+        "chicago, il": [-87.6298, 41.8781],
+        "houston, tx": [-95.3698, 29.7604],
+        "phoenix, az": [-112.0740, 33.4484],
+        "1600 Amphitheatre Parkway, Mountain View, CA": [-122.084, 37.422],
+        "1 Infinite Loop, Cupertino, CA": [-122.0322, 37.3318]
+    }
+    const originCoords = locations[origin.toLowerCase()] || [-98.5795, 39.8283];
+    const destinationCoords = locations[destination.toLowerCase()] || [-98.5795, 39.8283];
+
+    return {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+            type: 'LineString',
+            coordinates: [originCoords, destinationCoords]
+        }
+    };
+}
+
 
 export default function LogisticsClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
-  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [routeGeoJSON, setRouteGeoJSON] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
   const { toast } = useToast();
-
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
   
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: apiKey,
-    preventGoogleFontsLoading: true,
-  });
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -65,33 +83,14 @@ export default function LogisticsClient() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     setResult(null);
-    setDirections(null);
+    setRouteGeoJSON(null);
 
     const aiResponse = await getLogisticsOptimization(values);
 
     if (aiResponse.success && aiResponse.data) {
       setResult(aiResponse.data);
       toast({ title: "Optimization Complete", description: "Logistics plan has been generated." });
-      
-      if (isLoaded) {
-        const directionsService = new google.maps.DirectionsService();
-        directionsService.route(
-          {
-            origin: values.origin,
-            destination: values.destination,
-            travelMode: google.maps.TravelMode.DRIVING,
-          },
-          (result, status) => {
-            if (status === google.maps.DirectionsStatus.OK) {
-              setDirections(result);
-            } else {
-              console.error(`error fetching directions ${result}`);
-              toast({ variant: "destructive", title: "Map Error", description: "Could not fetch route preview from Google Maps." });
-            }
-          }
-        );
-      }
-
+      setRouteGeoJSON(getRouteGeoJSON(values.origin, values.destination));
     } else {
       toast({ variant: "destructive", title: "Error", description: aiResponse.error });
     }
@@ -100,31 +99,40 @@ export default function LogisticsClient() {
   }
 
   const renderMap = () => {
-    if (!apiKey) {
+    if (!mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE') {
       return (
          <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Google Maps API Key Missing</AlertTitle>
+            <AlertTitle>Mapbox API Key Missing</AlertTitle>
             <AlertDescription>
-              Please add your Google Maps API key to the `.env.local` file as `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_API_KEY_HERE`. You can get a key from the Google Cloud Console.
+              Please add your Mapbox API key to your `.env` file as `NEXT_PUBLIC_MAPBOX_API_KEY=YOUR_API_KEY_HERE`. You can get a key from the Mapbox website.
             </AlertDescription>
           </Alert>
       )
     }
-    if (loadError) {
-      return <div className="p-4 text-center text-destructive">Error loading maps. Please ensure your Google Maps API key is valid.</div>;
-    }
-    if (!isLoaded) {
-      return <Skeleton className="h-[400px] w-full" />;
-    }
+
     return (
-      <GoogleMap
-        mapContainerStyle={mapContainerStyle}
-        center={center}
-        zoom={10}
-      >
-        {directions && <DirectionsRenderer directions={directions} />}
-      </GoogleMap>
+        <div className="relative h-[400px] w-full overflow-hidden rounded-md">
+            <Map
+                mapboxAccessToken={mapboxToken}
+                initialViewState={initialViewState}
+                mapStyle="mapbox://styles/mapbox/streets-v11"
+            >
+                {routeGeoJSON && (
+                    <Source id="route-source" type="geojson" data={routeGeoJSON}>
+                        <Layer
+                            id="route-layer"
+                            type="line"
+                            paint={{
+                                'line-color': 'hsl(var(--primary))',
+                                'line-width': 4,
+                                'line-opacity': 0.8
+                            }}
+                        />
+                    </Source>
+                )}
+            </Map>
+        </div>
     );
   };
 
@@ -160,7 +168,7 @@ export default function LogisticsClient() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isLoading || !isLoaded || !apiKey}>
+              <Button type="submit" disabled={isLoading || !mapboxToken || mapboxToken === 'YOUR_MAPBOX_API_KEY_HERE'}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Optimize Route
               </Button>
@@ -226,7 +234,7 @@ export default function LogisticsClient() {
               Route Preview
             </CardTitle>
             <CardDescription>
-              {directions ? "Preview of the optimized route." : "The route preview will appear here after optimization."}
+              {routeGeoJSON ? "Preview of the optimized route." : "The route preview will appear here after optimization."}
             </CardDescription>
           </CardHeader>
           <CardContent>
