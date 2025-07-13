@@ -1,7 +1,7 @@
 
 "use client";
 
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, type TooltipProps } from "recharts";
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, LabelList, type TooltipProps } from "recharts";
 import { useTheme } from "next-themes";
 import { useState, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,6 +38,24 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
                     </div>
                 </div>
             </div>
+        );
+    }
+    return null;
+};
+
+const CustomizedLabel = (props: any) => {
+    const { x, y, width, value } = props;
+    if (value < CRITICAL_THRESHOLD) {
+        return (
+            <g>
+                <AlertTriangle 
+                    x={x + width / 2 - 8} 
+                    y={y - 20} 
+                    width={16} 
+                    height={16} 
+                    className="text-amber-500 dark:text-amber-400"
+                />
+            </g>
         );
     }
     return null;
@@ -87,7 +105,7 @@ export default function InventoryChart({ data }: InventoryChartProps) {
   return (
     <div style={{ width: '100%', height: 300 }}>
         <ResponsiveContainer>
-            <BarChart data={data}>
+            <BarChart data={data} margin={{ top: 25, right: 10, left: 0, bottom: 0 }}>
                 <XAxis
                     dataKey="name"
                     stroke={chartColors.mutedForeground}
@@ -110,6 +128,7 @@ export default function InventoryChart({ data }: InventoryChartProps) {
                    {data.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
                     ))}
+                    <LabelList dataKey="total" content={<CustomizedLabel />} />
                 </Bar>
             </BarChart>
         </ResponsiveContainer>
