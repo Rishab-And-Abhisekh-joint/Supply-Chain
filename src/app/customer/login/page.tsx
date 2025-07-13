@@ -48,6 +48,7 @@ export default function CustomerLoginPage() {
   
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
+    console.log("Login Page: Attempting Google login...");
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({
       prompt: 'select_account'
@@ -55,6 +56,7 @@ export default function CustomerLoginPage() {
     try {
       await signInWithRedirect(auth, provider);
     } catch (error: any) {
+      console.error("Login Page: Google login error", error);
       toast({
         variant: "destructive",
         title: "Login Failed",
@@ -66,10 +68,13 @@ export default function CustomerLoginPage() {
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
+    console.log("Login Page: Attempting email/password login with values:", values);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
+      console.log("Login Page: Email/password login successful.");
       // AppLayout will handle the redirect on successful login
     } catch (error: any) {
+       console.error("Login Page: Email/password login error", error);
        let description = "An unexpected error occurred. Please try again.";
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
         description = "Invalid email or password. Please try again.";

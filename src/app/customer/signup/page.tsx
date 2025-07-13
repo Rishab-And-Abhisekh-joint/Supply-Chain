@@ -50,6 +50,7 @@ export default function CustomerSignupPage() {
 
   const handleGoogleSignup = async () => {
     setIsGoogleLoading(true);
+    console.log("Signup Page: Attempting Google signup...");
     const provider = new GoogleAuthProvider();
      provider.setCustomParameters({
       prompt: 'select_account'
@@ -57,6 +58,7 @@ export default function CustomerSignupPage() {
     try {
       await signInWithRedirect(auth, provider);
     } catch (error: any) {
+      console.error("Signup Page: Google signup error", error);
       toast({
         variant: "destructive",
         title: "Sign Up Failed",
@@ -68,15 +70,19 @@ export default function CustomerSignupPage() {
   
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
+    console.log("Signup Page: Attempting email/password signup with values:", values);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+      console.log("Signup Page: Email/password signup successful for user:", userCredential.user);
       if (userCredential.user) {
         await updateProfile(userCredential.user, {
             displayName: values.name
         });
+        console.log("Signup Page: User profile updated with name:", values.name);
       }
       // AppLayout will handle redirect on successful signup
     } catch (error: any) {
+      console.error("Signup Page: Email/password signup error", error);
       let description = "An unexpected error occurred. Please try again.";
       if (error.code === 'auth/email-already-in-use') {
         description = "This email is already in use. Please try another one or login.";

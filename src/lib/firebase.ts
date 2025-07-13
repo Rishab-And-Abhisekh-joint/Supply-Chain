@@ -10,9 +10,22 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
+console.log("Firebase Config:", firebaseConfig);
 
 // Initialize Firebase
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+let app;
+if (!getApps().length) {
+  try {
+    app = initializeApp(firebaseConfig);
+    console.log("Firebase initialized successfully.");
+  } catch (error) {
+    console.error("Firebase initialization error:", error);
+  }
+} else {
+  app = getApp();
+  console.log("Existing Firebase app retrieved.");
+}
+
 const auth = getAuth(app);
 
 export { app, auth };

@@ -70,27 +70,36 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const { setOpen, open } = useSidebar();
 
   React.useEffect(() => {
+    console.log("AppLayout: useEffect for auth processing is running.");
+
     const processAuth = async () => {
       try {
+        console.log("AppLayout: Checking for redirect result...");
         const result = await getRedirectResult(auth);
         if (result) {
+          console.log("AppLayout: Google redirect result found.", result.user);
           toast({ title: "Logged in successfully!" });
           router.push('/customer/inventory');
+        } else {
+          console.log("AppLayout: No redirect result.");
         }
       } catch (error: any) {
-        console.error("Error during getRedirectResult:", error);
-        if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
-            toast({
-              variant: "destructive",
-              title: "Login Failed",
-              description: error.message || "Could not complete sign-in. Please try again.",
-            });
-        }
+        console.error("AppLayout: Error during getRedirectResult:", error);
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: error.message || "Could not complete sign-in. Please try again.",
+        });
       }
 
+      console.log("AppLayout: Setting up onAuthStateChanged listener.");
       const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        console.log("AppLayout: onAuthStateChanged triggered. User:", currentUser);
         setUser(currentUser);
-        setAuthLoading(false);
+        if (authLoading) {
+            console.log("AppLayout: Auth loading finished.");
+            setAuthLoading(false);
+        }
       });
       
       return unsubscribe;
@@ -99,30 +108,44 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     const unsubscribePromise = processAuth();
 
     return () => {
-      unsubscribePromise.then(unsubscribe => unsubscribe && unsubscribe());
+      console.log("AppLayout: Cleaning up auth useEffect.");
+      unsubscribePromise.then(unsubscribe => {
+        if (unsubscribe) {
+          console.log("AppLayout: Unsubscribing from onAuthStateChanged.");
+          unsubscribe();
+        }
+      });
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {
-    if (authLoading) return;
+    if (authLoading) {
+      console.log("Auth Guard: Auth is loading, skipping checks.");
+      return;
+    };
 
+    console.log("Auth Guard: Running checks. User:", user, "Pathname:", pathname);
     const isAuthPage = authRoutes.includes(pathname);
     const isCustomerPage = customerRoutes.some(route => pathname.startsWith(route));
 
     if (user && isAuthPage) {
+      console.log("Auth Guard: User is on auth page, redirecting to /customer/inventory");
       router.push('/customer/inventory');
     } else if (!user && isCustomerPage) {
+      console.log("Auth Guard: User not logged in, on customer page, redirecting to /customer/login");
       router.push('/customer/login');
     }
   }, [authLoading, user, pathname, router]);
 
   const handleLogout = async () => {
     try {
+      console.log("Logout: Attempting to sign out.");
       await signOut(auth);
+      console.log("Logout: Sign out successful.");
       router.push('/customer/login');
     } catch (error) {
-      console.error("Error signing out:", error);
+      console.error("Logout: Error signing out:", error);
     }
   };
 
