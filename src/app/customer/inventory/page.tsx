@@ -37,22 +37,24 @@ import {
 } from "@/components/ui/form"
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import InventoryChart, { type InventoryData } from '@/components/inventory-chart';
 
 interface Product {
     id: string;
     name: string;
     sku: string;
     quantity: number;
+    previousQuantity: number;
     weight: string;
     dimensions: string;
 }
 
 const initialInventory: Product[] = [
-    { id: 'PROD001', name: 'Premium Laptop', sku: 'LP-PREM-01', quantity: 45, weight: '2.1 kg', dimensions: '35x25x2 cm' },
-    { id: 'PROD002', name: 'Wireless Mouse', sku: 'MS-WRLS-05', quantity: 150, weight: '0.1 kg', dimensions: '10x6x4 cm' },
-    { id: 'PROD003', name: 'Mechanical Keyboard', sku: 'KB-MECH-02', quantity: 0, weight: '1.2 kg', dimensions: '45x15x4 cm' },
-    { id: 'PROD004', name: '4K Monitor', sku: 'MN-4K-27', quantity: 22, weight: '7.5 kg', dimensions: '62x45x20 cm' },
-    { id: 'PROD005', name: 'USB-C Hub', sku: 'HUB-USBC-8P', quantity: 5, weight: '0.2 kg', dimensions: '12x5x2 cm' },
+    { id: 'PROD001', name: 'Premium Laptop', sku: 'LP-PREM-01', quantity: 45, previousQuantity: 45, weight: '2.1 kg', dimensions: '35x25x2 cm' },
+    { id: 'PROD002', name: 'Wireless Mouse', sku: 'MS-WRLS-05', quantity: 150, previousQuantity: 150, weight: '0.1 kg', dimensions: '10x6x4 cm' },
+    { id: 'PROD003', name: 'Mechanical Keyboard', sku: 'KB-MECH-02', quantity: 0, previousQuantity: 0, weight: '1.2 kg', dimensions: '45x15x4 cm' },
+    { id: 'PROD004', name: '4K Monitor', sku: 'MN-4K-27', quantity: 22, previousQuantity: 22, weight: '7.5 kg', dimensions: '62x45x20 cm' },
+    { id: 'PROD005', name: 'USB-C Hub', sku: 'HUB-USBC-8P', quantity: 5, previousQuantity: 5, weight: '0.2 kg', dimensions: '12x5x2 cm' },
 ];
 
 type StatusVariant = "default" | "secondary" | "outline" | "destructive";
@@ -113,6 +115,16 @@ export default function CustomerInventoryPage() {
             });
         }
     }, [dialogMode, selectedProduct, form, isDialogOpen]);
+    
+    // Convert customer inventory to format expected by the chart
+    const chartData: InventoryData[] = inventory.map(item => ({
+        name: item.name,
+        warehouses: [{
+            name: "My Warehouse",
+            total: item.quantity,
+            previous: item.previousQuantity,
+        }]
+    }));
 
     const onSubmit = (values: z.infer<typeof productSchema>) => {
         setIsSubmitting(true);
@@ -120,9 +132,10 @@ export default function CustomerInventoryPage() {
         // Simulate an API call
         setTimeout(() => {
             if (dialogMode === 'add') {
-                const newProduct = {
+                const newProduct: Product = {
                     ...values,
                     id: `PROD${String(inventory.length + 1).padStart(3, '0')}`,
+                    previousQuantity: values.quantity,
                 };
                 setInventory(prev => [...prev, newProduct]);
                 toast({
@@ -130,7 +143,7 @@ export default function CustomerInventoryPage() {
                     description: `Successfully added "${values.name}" to your inventory.`,
                 });
             } else {
-                 setInventory(prev => prev.map(p => p.id === values.id ? { ...p, ...values } : p));
+                 setInventory(prev => prev.map(p => p.id === values.id ? { ...p, ...values, previousQuantity: p.quantity } : p));
                  toast({
                     title: "Product Updated",
                     description: `Successfully updated "${values.name}".`,
@@ -151,10 +164,20 @@ export default function CustomerInventoryPage() {
     return (
         <div className="space-y-6">
             <Card>
+                <CardHeader>
+                    <CardTitle>Inventory Overview</CardTitle>
+                    <CardDescription>A summary of your current product stock levels.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <InventoryChart data={chartData} view="customer" />
+                </CardContent>
+            </Card>
+
+            <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div>
-                        <CardTitle>Your Inventory</CardTitle>
-                        <CardDescription>Manage your products and view their stock levels.</CardDescription>
+                        <CardTitle>Manage Your Inventory</CardTitle>
+                        <CardDescription>Add, edit, and view your product stock levels.</CardDescription>
                     </div>
                      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                         <DialogTrigger asChild>

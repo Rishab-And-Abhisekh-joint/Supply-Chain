@@ -7,21 +7,28 @@ import { useState, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingDown, TrendingUp, AlertTriangle } from "lucide-react";
 
-const CRITICAL_THRESHOLD = 1000;
+const CRITICAL_THRESHOLD = 10; // For single-item customer view
+const ADMIN_CRITICAL_THRESHOLD = 1000; // For multi-warehouse admin view
+
+export interface WarehouseStock {
+    name: string;
+    total: number;
+    previous: number;
+}
 
 export interface InventoryData {
   name: string;
-  total: number;
-  previous: number;
+  warehouses: WarehouseStock[];
 }
 
 interface InventoryChartProps {
     data: InventoryData[];
+    view: 'admin' | 'customer';
 }
 
-const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+const CustomerTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
     if (active && payload && payload.length) {
-        const data: InventoryData = payload[0].payload;
+        const data: { name: string; total: number; previous: number } = payload[0].payload;
         const change = data.total - data.previous;
         const percentageChange = data.previous === 0 ? 0 : (change / data.previous) * 100;
         const changeColor = change >= 0 ? 'text-green-500' : 'text-red-500';
@@ -43,9 +50,51 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
     return null;
 };
 
+const AdminTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+    if (active && payload && payload.length) {
+        const data: { name: string; warehouses: WarehouseStock[] } = payload[0].payload;
+        
+        return (
+            <div className="rounded-lg border bg-background p-3 shadow-sm min-w-[200px]">
+                <div className="mb-2">
+                    <span className="text-sm font-bold uppercase text-foreground">{label}</span>
+                    <p className="text-xs text-muted-foreground">Warehouse Breakdown</p>
+                </div>
+                <div className="space-y-1">
+                    {data.warehouses.map(w => {
+                        const change = w.total - w.previous;
+                        const changeColor = change > 0 ? 'text-green-500' : change < 0 ? 'text-red-500' : 'text-muted-foreground';
+                        const changePrefix = change > 0 ? '+' : '';
+                        const ChangeIcon = change >= 0 ? TrendingUp : TrendingDown;
+
+                        return (
+                            <div key={w.name} className="flex justify-between items-center text-xs">
+                                <span className="text-muted-foreground">{w.name}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-medium text-foreground">{w.total.toLocaleString()}</span>
+                                    <div className={`flex items-center ${changeColor}`}>
+                                         {change !== 0 && <ChangeIcon className="h-3 w-3 mr-1" />}
+                                         <span>{changePrefix}{change}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
+
 const CustomizedLabel = (props: any) => {
-    const { x, y, width, value } = props;
-    if (value < CRITICAL_THRESHOLD) {
+    const { x, y, width, value, view, dataKey } = props;
+    const item = props.payload;
+    const total = item.warehouses.reduce((sum: number, w: WarehouseStock) => sum + w.total, 0);
+
+    const threshold = view === 'admin' ? ADMIN_CRITICAL_THRESHOLD : CRITICAL_THRESHOLD;
+
+    if (total < threshold) {
         return (
             <g>
                 <AlertTriangle 
@@ -61,8 +110,7 @@ const CustomizedLabel = (props: any) => {
     return null;
 };
 
-
-export default function InventoryChart({ data }: InventoryChartProps) {
+export default function InventoryChart({ data, view }: InventoryChartProps) {
   const { theme } = useTheme();
   const [chartColors, setChartColors] = useState({
     primary: "",
@@ -84,13 +132,25 @@ export default function InventoryChart({ data }: InventoryChartProps) {
         card: `hsl(${style.getPropertyValue("--card")})`,
     }));
   }, [theme]);
+  
+  const chartData = data.map(item => {
+    const total = item.warehouses.reduce((sum, w) => sum + w.total, 0);
+    const previous = item.warehouses.reduce((sum, w) => sum + w.previous, 0);
+    return {
+      name: item.name,
+      total,
+      previous,
+      warehouses: item.warehouses,
+    };
+  });
 
   if (!chartColors.primary || data.length === 0) {
     return <Skeleton className="h-[300px] w-full" />;
   }
   
-  const getBarColor = (item: InventoryData) => {
-    if (item.total < CRITICAL_THRESHOLD) {
+  const getBarColor = (item: typeof chartData[0]) => {
+    const threshold = view === 'admin' ? ADMIN_CRITICAL_THRESHOLD : CRITICAL_THRESHOLD;
+    if (item.total < threshold) {
       return chartColors.yellow;
     }
     if (item.total > item.previous) {
@@ -102,10 +162,12 @@ export default function InventoryChart({ data }: InventoryChartProps) {
     return chartColors.primary;
   };
 
+  const TooltipComponent = view === 'admin' ? AdminTooltip : CustomerTooltip;
+
   return (
     <div style={{ width: '100%', height: 300 }}>
         <ResponsiveContainer>
-            <BarChart data={data} margin={{ top: 25, right: 10, left: 0, bottom: 0 }}>
+            <BarChart data={chartData} margin={{ top: 25, right: 10, left: 0, bottom: 0 }}>
                 <XAxis
                     dataKey="name"
                     stroke={chartColors.mutedForeground}
@@ -122,13 +184,13 @@ export default function InventoryChart({ data }: InventoryChartProps) {
                 />
                 <Tooltip
                     cursor={{ fill: 'hsla(var(--primary), 0.1)' }}
-                    content={<CustomTooltip />}
+                    content={<TooltipComponent />}
                 />
                 <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                   {data.map((entry, index) => (
+                   {chartData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
                     ))}
-                    <LabelList dataKey="total" content={<CustomizedLabel />} />
+                    <LabelList dataKey="total" content={<CustomizedLabel view={view} />} />
                 </Bar>
             </BarChart>
         </ResponsiveContainer>

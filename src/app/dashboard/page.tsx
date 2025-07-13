@@ -10,13 +10,55 @@ import LiveRoutesMap from '@/components/live-routes-map';
 import RealTimeOrders, { type Order } from '@/components/real-time-orders';
 
 const initialInventoryData: InventoryData[] = [
-  { name: "Laptops", total: 1500, previous: 1500 },
-  { name: "Monitors", total: 2200, previous: 2200 },
-  { name: "Keyboards", total: 4500, previous: 4500 },
-  { name: "Mice", total: 6000, previous: 6000 },
-  { name: "Webcams", total: 3100, previous: 3100 },
-  { name: "Headsets", total: 2800, previous: 2800 },
-  { name: "Cables", total: 8500, previous: 8500 },
+    { 
+        name: "Laptops", 
+        warehouses: [
+            { name: "Warehouse A", total: 800, previous: 800 },
+            { name: "Warehouse B", total: 700, previous: 700 },
+        ]
+    },
+    { 
+        name: "Monitors", 
+        warehouses: [
+            { name: "Warehouse A", total: 1200, previous: 1200 },
+            { name: "Warehouse B", total: 1000, previous: 1000 },
+        ]
+    },
+    { 
+        name: "Keyboards", 
+         warehouses: [
+            { name: "Warehouse A", total: 2500, previous: 2500 },
+            { name: "Warehouse B", total: 2000, previous: 2000 },
+        ]
+    },
+    { 
+        name: "Mice", 
+         warehouses: [
+            { name: "Warehouse A", total: 3500, previous: 3500 },
+            { name: "Warehouse B", total: 2500, previous: 2500 },
+        ]
+    },
+    { 
+        name: "Webcams", 
+        warehouses: [
+            { name: "Warehouse A", total: 1600, previous: 1600 },
+            { name: "Warehouse B", total: 1500, previous: 1500 },
+        ]
+     },
+    { 
+        name: "Headsets", 
+        warehouses: [
+            { name: "Warehouse A", total: 1400, previous: 1400 },
+            { name: "Warehouse B", total: 1400, previous: 1400 },
+        ]
+    },
+    { 
+        name: "Cables", 
+        warehouses: [
+            { name: "Warehouse A", total: 4500, previous: 4500 },
+            { name: "Warehouse B", total: 4000, previous: 4000 },
+        ]
+    },
 ];
 
 const initialOrders: Order[] = [
@@ -50,7 +92,7 @@ const generateNewOrder = (orderCount: number): Order => {
 }
 
 
-const calculateTotal = (data: InventoryData[]) => data.reduce((sum, item) => sum + item.total, 0);
+const calculateTotal = (data: InventoryData[]) => data.reduce((sum, item) => sum + item.warehouses.reduce((wSum, w) => wSum + w.total, 0), 0);
 
 export default function DashboardPage() {
   const [anomalyCount, setAnomalyCount] = useState(3);
@@ -75,14 +117,19 @@ export default function DashboardPage() {
         setInventoryData(prevData => {
             const newData = prevData.map(item => {
                 const forceCritical = item.name === 'Webcams' && Math.random() > 0.8;
-                let change;
-                if (forceCritical) {
-                    change = -(item.total - 900);
-                } else {
-                    change = (Math.floor(Math.random() * 100) - 45);
-                }
-                const newTotal = Math.max(0, item.total + change);
-                return { name: item.name, total: newTotal, previous: item.total };
+                
+                const updatedWarehouses = item.warehouses.map(warehouse => {
+                    let change;
+                    if (forceCritical && warehouse.name === 'Warehouse A') {
+                        change = -(warehouse.total - 900);
+                    } else {
+                        change = (Math.floor(Math.random() * 100) - 45);
+                    }
+                    const newTotal = Math.max(0, warehouse.total + change);
+                    return { ...warehouse, total: newTotal, previous: warehouse.total };
+                });
+
+                return { ...item, warehouses: updatedWarehouses };
             });
             
             const currentTotal = calculateTotal(prevData);
@@ -201,10 +248,10 @@ export default function DashboardPage() {
         <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>Inventory Levels</CardTitle>
-            <CardDescription>Current stock levels across all products.</CardDescription>
+            <CardDescription>Current stock levels across all products and warehouses.</CardDescription>
           </CardHeader>
           <CardContent>
-            <InventoryChart data={inventoryData} />
+            <InventoryChart data={inventoryData} view="admin" />
           </CardContent>
         </Card>
         <Card className="lg:col-span-2">
