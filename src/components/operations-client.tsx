@@ -97,8 +97,10 @@ export default function OperationsClient() {
   }
   
   const restartStream = () => {
+    setLiveEvents([]);
     setFlaggedEvents([]);
     setAnalysisResult(null);
+    eventCounter.current = 0;
     setIsStreamRunning(true);
   }
 
