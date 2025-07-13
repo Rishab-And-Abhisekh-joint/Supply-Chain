@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit } from "lucide-react";
+import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit, Truck } from "lucide-react";
 import Map, { Source, Layer, type MapRef } from 'react-map-gl';
 import type { LngLatBoundsLike } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -30,6 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 
 
 const mockLocations = [
@@ -51,7 +52,13 @@ const manualRouteFormSchema = z.object({
   optimalRouteSummary: z.string().min(1, "Route summary is required."),
   estimatedTime: z.string().min(1, "Estimated time is required."),
   estimatedDistance: z.string().min(1, "Estimated distance is required."),
-})
+});
+
+const orderDetailsSchema = z.object({
+  packageCount: z.coerce.number().int().min(1, "At least one package is required."),
+  packageSize: z.string().min(1, "Package size is required (e.g., Medium)"),
+});
+
 
 const initialViewState = {
   longitude: -98.5795,
@@ -100,6 +107,8 @@ export default function LogisticsClient() {
   const [confirmedResult, setConfirmedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
   const [routeGeoJSON, setRouteGeoJSON] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
   const [postRejectionStep, setPostRejectionStep] = useState<'idle' | 'prompt' | 'manual_entry'>('idle');
+  const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
+  const [orderStep, setOrderStep] = useState(1);
   const { toast } = useToast();
   const { theme } = useTheme();
   const [primaryColor, setPrimaryColor] = useState("");
@@ -131,7 +140,16 @@ export default function LogisticsClient() {
       estimatedTime: "",
       estimatedDistance: "",
     },
-  })
+  });
+
+  const orderDetailsForm = useForm<z.infer<typeof orderDetailsSchema>>({
+    resolver: zodResolver(orderDetailsSchema),
+    defaultValues: {
+      packageCount: 1,
+      packageSize: "Medium",
+    },
+  });
+
 
   async function onOptimizationSubmit(values: z.infer<typeof optimizationFormSchema>) {
     setIsLoading(true);
@@ -156,7 +174,7 @@ export default function LogisticsClient() {
       const { origin, destination } = optimizationForm.getValues();
       const { geojson, bounds } = getRouteData(origin, destination);
       setRouteGeoJSON(geojson);
-      mapRef.current?.fitBounds(bounds, { padding: 40, duration: 1000 });
+      setTimeout(() => mapRef.current?.fitBounds(bounds, { padding: 80, duration: 1000 }), 100);
   };
 
 
@@ -166,16 +184,16 @@ export default function LogisticsClient() {
       reasoning: "Manually entered by user.",
       confirmation: true,
     }
-    handleConfirmRoute();
     setConfirmedResult(manualResult);
+    handleConfirmRoute();
     setPostRejectionStep('idle');
     toast({ title: "Route Confirmed", description: "The manual logistics plan has been finalized." });
   }
 
   const handleAccept = () => {
     if (proposedResult) {
-      handleConfirmRoute();
       setConfirmedResult({ ...proposedResult, confirmation: true });
+      handleConfirmRoute();
       setProposedResult(null);
       toast({ title: "Route Confirmed", description: "The logistics plan has been finalized." });
     }
@@ -191,9 +209,22 @@ export default function LogisticsClient() {
     setPostRejectionStep('idle');
     onOptimizationSubmit(optimizationForm.getValues());
   }
+  
+  const handlePlaceOrder = () => {
+      setIsOrderDialogOpen(false);
+      setConfirmedResult(null); // Reset the flow
+      setRouteGeoJSON(null);
+      setOrderStep(1);
+      orderDetailsForm.reset();
+      optimizationForm.reset({
+        origin: "1600 Amphitheatre Parkway, Mountain View, CA",
+        destination: "1 Apple Park Way, Cupertino, CA",
+      });
+      toast({ title: "Order Placed!", description: "Your shipment has been scheduled." });
+  }
 
   const result = confirmedResult || proposedResult;
-
+  
   const renderMap = () => {
     if (!mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')) {
       return (
@@ -201,7 +232,7 @@ export default function LogisticsClient() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Mapbox Public Key Missing</AlertTitle>
             <AlertDescription>
-              Please add your public Mapbox API key (it should start with `pk.`) to your `.env` file as `NEXT_PUBLIC_MAPBOX_API_KEY=YOUR_API_KEY_HERE`. You can get a key from the Mapbox website.
+              Please add your public Mapbox API key (it should start with `pk.`) to your `.env` file as `NEXT_PUBLIC_MAPBOX_API_KEY=pk.YOUR_API_KEY`. You can get a key from the Mapbox website.
             </AlertDescription>
           </Alert>
       )
@@ -236,6 +267,10 @@ export default function LogisticsClient() {
         </div>
     );
   };
+  
+  const estimatedCost = confirmedResult ? (orderDetailsForm.getValues('packageCount') * 25.50).toFixed(2) : '0.00';
+  const totalCost = (parseFloat(estimatedCost) * 1.08).toFixed(2); // with 8% tax
+  const advancePayment = (parseFloat(totalCost) * 0.20).toFixed(2); // 20% advance
 
   return (
     <div className="space-y-8">
@@ -277,7 +312,7 @@ export default function LogisticsClient() {
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a destination location" />
-                        </SelectTrigger>
+                        </Trigger>
                       </FormControl>
                       <SelectContent>
                         {mockLocations.map(location => (
@@ -291,7 +326,7 @@ export default function LogisticsClient() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={isLoading || !mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')}>
+              <Button type="submit" disabled={isLoading || confirmedResult !== null || !mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Optimize Route
               </Button>
@@ -450,20 +485,112 @@ export default function LogisticsClient() {
           )}
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapIcon className="h-5 w-5 text-primary" />
-              Route Preview
-            </CardTitle>
-            <CardDescription>
-              {routeGeoJSON ? "Preview of the confirmed route." : "The route preview will appear here after confirmation."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {renderMap()}
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+            <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                <MapIcon className="h-5 w-5 text-primary" />
+                Route Preview
+                </CardTitle>
+                <CardDescription>
+                {routeGeoJSON ? "Preview of the confirmed route." : "The route preview will appear here after confirmation."}
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                {renderMap()}
+            </CardContent>
+            </Card>
+
+            {confirmedResult && (
+                <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
+                    <DialogTrigger asChild>
+                         <Button className="w-full">
+                            <Truck className="mr-2 h-4 w-4" />
+                            Finalize and Place Order
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                         <DialogHeader>
+                            <DialogTitle>Place Your Order</DialogTitle>
+                            <DialogDescription>
+                                {orderStep === 1 ? "Confirm package details to get an estimated cost." : "Review the final details and confirm your order."}
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        {orderStep === 1 && (
+                             <Form {...orderDetailsForm}>
+                                <form onSubmit={orderDetailsForm.handleSubmit(() => setOrderStep(2))} className="space-y-4">
+                                     <div className="grid grid-cols-2 gap-4">
+                                        <FormField
+                                            control={orderDetailsForm.control}
+                                            name="packageCount"
+                                            render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>No. of Packages</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                            )}
+                                        />
+                                         <FormField
+                                            control={orderDetailsForm.control}
+                                            name="packageSize"
+                                            render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Avg. Package Size</FormLabel>
+                                                <FormControl>
+                                                    <Input {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                            )}
+                                        />
+                                    </div>
+                                    <Card className="bg-muted/50">
+                                        <CardContent className="pt-6 text-sm space-y-2">
+                                            <p><strong>Route:</strong> {optimizationForm.getValues('origin')} to {optimizationForm.getValues('destination')}</p>
+                                            <p><strong>Est. Cost:</strong> ${estimatedCost}</p>
+                                            <p><strong>Est. Arrival:</strong> {new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString()}</p>
+                                        </CardContent>
+                                    </Card>
+                                    <DialogFooter>
+                                        <Button type="submit">Place Order</Button>
+                                    </DialogFooter>
+                                </form>
+                            </Form>
+                        )}
+                        
+                        {orderStep === 2 && (
+                            <div className="space-y-4">
+                                <p className="text-sm text-muted-foreground">Your order for {orderDetailsForm.getValues('packageCount')} package(s) is almost ready. Please review and confirm.</p>
+                                <Card>
+                                    <CardContent className="pt-6 space-y-2">
+                                        <div className="flex justify-between font-medium">
+                                            <span>Total Estimated Cost</span>
+                                            <span>${totalCost}</span>
+                                        </div>
+                                         <div className="flex justify-between text-muted-foreground">
+                                            <span>(includes 8% tax)</span>
+                                        </div>
+                                        <hr className="my-2"/>
+                                        <div className="flex justify-between font-bold text-primary text-lg">
+                                            <span>Advance Payment Due</span>
+                                            <span>${advancePayment}</span>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                                 <DialogFooter className="sm:justify-between">
+                                    <Button variant="ghost" onClick={() => setOrderStep(1)}>Back</Button>
+                                    <Button onClick={handlePlaceOrder}>Confirm & Pay</Button>
+                                </DialogFooter>
+                            </div>
+                        )}
+                    </DialogContent>
+                </Dialog>
+            )}
+        </div>
       </div>
     </div>
   );
