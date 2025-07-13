@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PlusCircle, Loader2, Pencil } from 'lucide-react';
+import { PlusCircle, Loader2, Pencil, BarChart } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -88,6 +89,7 @@ export default function CustomerInventoryPage() {
     const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const { toast } = useToast();
+    const router = useRouter();
 
     const form = useForm<z.infer<typeof productSchema>>({
         resolver: zodResolver(productSchema),
@@ -159,6 +161,15 @@ export default function CustomerInventoryPage() {
         setDialogMode(mode);
         setSelectedProduct(product);
         setIsDialogOpen(true);
+    };
+
+    const handleForecastDemand = (product: Product) => {
+        const params = new URLSearchParams({
+            productName: product.name,
+            source: 'customer',
+            currentStock: String(product.quantity)
+        });
+        router.push(`/forecasting?${params.toString()}`);
     };
 
     return (
@@ -300,7 +311,13 @@ export default function CustomerInventoryPage() {
                                         <TableCell>
                                             <Badge variant={statusVariantMap[status] || 'outline'}>{status}</Badge>
                                         </TableCell>
-                                        <TableCell className="text-right">
+                                        <TableCell className="text-right space-x-2">
+                                            { (status === 'Low Stock' || status === 'Out of Stock') && (
+                                                <Button variant="outline" size="sm" onClick={() => handleForecastDemand(item)}>
+                                                    <BarChart className="h-4 w-4 mr-2" />
+                                                    Forecast Demand
+                                                </Button>
+                                            )}
                                             <Button variant="ghost" size="icon" onClick={() => openDialog('edit', item)}>
                                                 <Pencil className="h-4 w-4" />
                                                 <span className="sr-only">Edit Product</span>

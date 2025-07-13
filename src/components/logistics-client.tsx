@@ -60,6 +60,7 @@ const mockLocations = [
     { name: "Apple Park, Cupertino", address: "1 Apple Park Way, Cupertino, CA" },
     { name: "Starbucks Reserve, Seattle", address: "1124 Pike St, Seattle, WA" },
     { name: "Tesla Gigafactory, Austin", address: "13101 Harold Green Road, Austin, TX" },
+    { name: "Customer Address", address: "123 Customer St, Clientville" },
 ]
 
 const initialViewState = {
@@ -77,6 +78,7 @@ const getRouteData = (origin: string, destination: string): { geojson: GeoJSON.F
         "1 apple park way, cupertino, ca": [-122.0322, 37.3318],
         "1124 pike st, seattle, wa": [-122.330, 47.614],
         "13101 harold green road, austin, tx": [-97.620, 30.224],
+        "123 customer st, clientville": [-122.4194, 37.7749], // Mock coords for customer
     }
     const originCoords = locations[origin.toLowerCase()] || [-98.5795, 39.8283];
     const destinationCoords = locations[destination.toLowerCase()] || [-98.5795, 39.8283];
@@ -294,11 +296,15 @@ function LogisticsClientContent() {
 
   useEffect(() => {
     const originFromQuery = searchParams.get('origin');
+    const destinationFromQuery = searchParams.get('destination');
     const productName = searchParams.get('productName');
     const quantity = searchParams.get('quantity');
 
     if (originFromQuery) {
         optimizationForm.setValue('origin', originFromQuery);
+    }
+     if (destinationFromQuery) {
+        optimizationForm.setValue('destination', destinationFromQuery);
     }
     if (productName && quantity) {
       orderDetailsForm.setValue('packageDescription', `${quantity} units of ${productName}`);

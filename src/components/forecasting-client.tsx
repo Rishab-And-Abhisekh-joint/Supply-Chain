@@ -1,9 +1,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, AlertTriangle, PackagePlus, Pencil } from "lucide-react";
@@ -30,7 +30,7 @@ const formSchema = z.object({
   forecastHorizon: z.coerce.number().int().min(1, "Please select a forecast horizon."),
 });
 
-const products = ["Laptops", "Monitors", "Keyboards", "Mice"];
+const products = ["Laptops", "Monitors", "Keyboards", "Mice", "Premium Laptop", "Wireless Mouse", "Mechanical Keyboard", "4K Monitor", "USB-C Hub"];
 const historicalRanges = [
     { label: "Last 6 Months", value: 6 },
     { label: "Last 12 Months", value: 12 },
@@ -42,8 +42,8 @@ const forecastHorizons = [
     { label: "Next 12 Months", value: 12 },
 ];
 
-// Mock current inventory levels
-const currentInventory: { [key: string]: number } = {
+// Mock current inventory levels for ADMIN
+const adminInventory: { [key: string]: number } = {
     "Laptops": 1250,
     "Monitors": 2000,
     "Keyboards": 4800,
@@ -55,6 +55,7 @@ export default function ForecastingClient() {
   const [result, setResult] = useState<PredictProductDemandOutput | null>(null);
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -64,6 +65,16 @@ export default function ForecastingClient() {
       forecastHorizon: 12,
     },
   });
+
+  const isCustomer = searchParams.get('source') === 'customer';
+
+  useEffect(() => {
+    const productNameFromQuery = searchParams.get('productName');
+    if (isCustomer && productNameFromQuery) {
+        form.setValue('productName', productNameFromQuery);
+    }
+  }, [searchParams, form, isCustomer]);
+
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
@@ -80,7 +91,17 @@ export default function ForecastingClient() {
   }
 
   const handlePlaceOrder = (productName: string, quantity: number) => {
-    router.push(`/logistics?productName=${encodeURIComponent(productName)}&quantity=${quantity}`);
+    const params = new URLSearchParams({
+        productName: productName,
+        quantity: String(quantity),
+    });
+
+    if (isCustomer) {
+        // Assume customer's address is their destination
+        params.append('destination', '123 Customer St, Clientville');
+    }
+
+    router.push(`/logistics?${params.toString()}`);
   };
 
   const handleEditForecast = () => {
@@ -88,7 +109,15 @@ export default function ForecastingClient() {
   };
   
   const forecastedDemand = result ? result.forecastedDemand.reduce((a, b) => a + b, 0) : 0;
-  const currentStock = currentInventory[form.getValues('productName')] || 0;
+  
+  const getStockLevel = () => {
+    if (isCustomer) {
+        return parseInt(searchParams.get('currentStock') || '0');
+    }
+    return adminInventory[form.getValues('productName')] || 0;
+  }
+
+  const currentStock = getStockLevel();
   const stockDifference = forecastedDemand - currentStock;
   const needsReorder = result && stockDifference > 0;
 
@@ -103,7 +132,7 @@ export default function ForecastingClient() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Product Name</FormLabel>
-                   <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!!result}>
+                   <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={!!result}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a product" />
