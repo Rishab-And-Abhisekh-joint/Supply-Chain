@@ -18,12 +18,6 @@ export default function RootLayout({
 }>) {
   const pathname = usePathname();
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      (window as any).auth = auth;
-    }
-  }, []);
-  
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
