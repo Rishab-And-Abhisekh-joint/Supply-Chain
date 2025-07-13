@@ -5,9 +5,9 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import InventoryChart, { type InventoryData } from "@/components/inventory-chart";
-import OrderStatusTable from "@/components/order-status-table";
 import { AlertCircle, PackageCheck, Truck } from "lucide-react";
 import LiveRoutesMap from '@/components/live-routes-map';
+import RealTimeOrders, { type Order } from '@/components/real-time-orders';
 
 const initialInventoryData: InventoryData[] = [
   { name: "Laptops", total: 1500, previous: 1500 },
@@ -19,6 +19,16 @@ const initialInventoryData: InventoryData[] = [
   { name: "Cables", total: 8500, previous: 8500 },
 ];
 
+const initialOrders: Order[] = [
+    { id: 'ORD789', customerName: 'Liam Johnson', customerId: 'CUST001', orderDate: '2023-10-23', expectedDate: '2023-10-28', status: 'Shipped', deliveryType: 'Truck', totalAmount: 250.00, amountPaid: 250.00, transitId: 'truck-1' },
+    { id: 'ORD790', customerName: 'Olivia Smith', customerId: 'CUST002', orderDate: '2023-10-24', expectedDate: '2023-10-29', status: 'Shipped', deliveryType: 'Truck', totalAmount: 150.00, amountPaid: 150.00, transitId: 'truck-1' },
+    { id: 'ORD791', customerName: 'Noah Williams', customerId: 'CUST003', orderDate: '2023-10-24', expectedDate: '2023-11-01', status: 'Shipped', deliveryType: 'Truck', totalAmount: 350.00, amountPaid: 350.00, transitId: 'truck-2' },
+    { id: 'ORD801', customerName: 'Emma Brown', customerId: 'CUST004', orderDate: '2023-10-22', expectedDate: '2023-11-05', status: 'Shipped', deliveryType: 'Train', totalAmount: 450.00, amountPaid: 450.00, transitId: 'train-1' },
+    { id: 'ORD905', customerName: 'Ava Jones', customerId: 'CUST005', orderDate: '2023-10-21', expectedDate: '2023-10-25', status: 'Shipped', deliveryType: 'Flight', totalAmount: 550.00, amountPaid: 550.00, transitId: 'flight-1' },
+    { id: 'ORD999', customerName: 'James Miller', customerId: 'CUST006', orderDate: '2023-10-25', expectedDate: '2023-11-02', status: 'Processing', deliveryType: 'Truck', totalAmount: 200.00, amountPaid: 50.00, transitId: null },
+    { id: 'ORD998', customerName: 'Sophia Davis', customerId: 'CUST007', orderDate: '2023-10-25', expectedDate: '2023-11-03', status: 'Processing', deliveryType: 'Train', totalAmount: 800.00, amountPaid: 200.00, transitId: null },
+];
+
 const calculateTotal = (data: InventoryData[]) => data.reduce((sum, item) => sum + item.total, 0);
 
 export default function DashboardPage() {
@@ -26,10 +36,12 @@ export default function DashboardPage() {
   const [inventoryData, setInventoryData] = useState<InventoryData[]>(initialInventoryData);
   const [totalInventory, setTotalInventory] = useState(calculateTotal(initialInventoryData));
   const [previousInventory, setPreviousInventory] = useState(totalInventory);
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     const anomalyInterval = setInterval(() => {
-      if (Math.random() > 0.7) { // 30% chance to increase anomaly count every 4 seconds
+      if (Math.random() > 0.7) { 
           setAnomalyCount(prev => prev + 1);
       }
     }, 4000);
@@ -37,13 +49,12 @@ export default function DashboardPage() {
     const inventoryInterval = setInterval(() => {
         setInventoryData(prevData => {
             const newData = prevData.map(item => {
-                // Occasionally force a drop below critical for demonstration
                 const forceCritical = item.name === 'Webcams' && Math.random() > 0.8;
                 let change;
                 if (forceCritical) {
-                    change = -(item.total - 900); // Drop to just below 1000
+                    change = -(item.total - 900);
                 } else {
-                    change = (Math.floor(Math.random() * 100) - 45); // Fluctuate between -45 and +54
+                    change = (Math.floor(Math.random() * 100) - 45);
                 }
                 const newTotal = Math.max(0, item.total + change);
                 return { name: item.name, total: newTotal, previous: item.total };
@@ -58,10 +69,25 @@ export default function DashboardPage() {
             return newData;
         });
     }, 5000);
+    
+    const orderInterval = setInterval(() => {
+        setOrders(prevOrders => {
+            const orderToUpdateIndex = Math.floor(Math.random() * prevOrders.length);
+            return prevOrders.map((order, index) => {
+                if (index === orderToUpdateIndex && order.status === "Shipped") {
+                    if(Math.random() > 0.8) {
+                        return { ...order, status: "Delivered", expectedDate: new Date().toISOString().split('T')[0] };
+                    }
+                }
+                return order;
+            });
+        });
+    }, 7000);
 
     return () => {
         clearInterval(anomalyInterval);
         clearInterval(inventoryInterval);
+        clearInterval(orderInterval);
     };
   }, []);
 
@@ -95,9 +121,9 @@ export default function DashboardPage() {
             <Truck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">127</div>
+            <div className="text-2xl font-bold">{orders.filter(o => o.status === 'Shipped').length}</div>
             <p className="text-xs text-muted-foreground">
-              +2 since last hour
+              Updating in real-time
             </p>
           </CardContent>
         </Card>
@@ -135,18 +161,18 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="relative h-[300px] w-full overflow-hidden rounded-lg">
-                <LiveRoutesMap />
+                <LiveRoutesMap orders={orders} selectedOrderId={selectedOrderId} />
             </div>
           </CardContent>
         </Card>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Recent Orders</CardTitle>
-          <CardDescription>Overview of the most recent orders.</CardDescription>
+          <CardTitle>Real-Time Orders</CardTitle>
+          <CardDescription>Live overview of incoming and in-transit orders.</CardDescription>
         </CardHeader>
         <CardContent>
-          <OrderStatusTable />
+          <RealTimeOrders orders={orders} onOrderSelect={setSelectedOrderId} selectedOrderId={selectedOrderId} />
         </CardContent>
       </Card>
     </div>
