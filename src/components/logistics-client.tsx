@@ -27,7 +27,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Badge } from "./ui/badge";
-import { Textarea } from "./ui/textarea";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+
+const mockLocations = [
+    { name: "DTDC Hub, New York", address: "New York, NY" },
+    { name: "Blue Dart Warehouse, Chicago", address: "Chicago, IL" },
+    { name: "FedEx Center, Houston", address: "Houston, TX" },
+    { name: "Googleplex, Mountain View", address: "1600 Amphitheatre Parkway, Mountain View, CA" },
+]
 
 const optimizationFormSchema = z.object({
   origin: z.string().min(1, "Origin address is required."),
@@ -123,7 +132,6 @@ export default function LogisticsClient() {
     if (aiResponse.success && aiResponse.data) {
       setProposedResult(aiResponse.data);
       toast({ title: "Route Proposed", description: "Please review and confirm the optimized route." });
-      setRouteGeoJSON(getRouteGeoJSON(values.origin, values.destination));
     } else {
       toast({ variant: "destructive", title: "Error", description: aiResponse.error });
     }
@@ -137,6 +145,8 @@ export default function LogisticsClient() {
       reasoning: "Manually entered by user.",
       confirmation: true,
     }
+    const { origin, destination } = optimizationForm.getValues();
+    setRouteGeoJSON(getRouteGeoJSON(origin, destination));
     setConfirmedResult(manualResult);
     setPostRejectionStep('idle');
     toast({ title: "Route Confirmed", description: "The manual logistics plan has been finalized." });
@@ -144,6 +154,8 @@ export default function LogisticsClient() {
 
   const handleAccept = () => {
     if (proposedResult) {
+      const { origin, destination } = optimizationForm.getValues();
+      setRouteGeoJSON(getRouteGeoJSON(origin, destination));
       setConfirmedResult({ ...proposedResult, confirmation: true });
       setProposedResult(null);
       toast({ title: "Route Confirmed", description: "The logistics plan has been finalized." });
@@ -211,15 +223,26 @@ export default function LogisticsClient() {
         <div className="space-y-6">
           <Form {...optimizationForm}>
             <form onSubmit={optimizationForm.handleSubmit(onOptimizationSubmit)} className="space-y-6">
-              <FormField
+               <FormField
                 control={optimizationForm.control}
                 name="origin"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Origin</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter starting address" {...field} />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a starting location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {mockLocations.map(location => (
+                           <SelectItem key={location.name} value={location.address}>
+                            {location.name}
+                           </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -403,7 +426,7 @@ export default function LogisticsClient() {
               Route Preview
             </CardTitle>
             <CardDescription>
-              {routeGeoJSON ? "Preview of the optimized route." : "The route preview will appear here after optimization."}
+              {routeGeoJSON ? "Preview of the confirmed route." : "The route preview will appear here after confirmation."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -414,5 +437,3 @@ export default function LogisticsClient() {
     </div>
   );
 }
-
-    
