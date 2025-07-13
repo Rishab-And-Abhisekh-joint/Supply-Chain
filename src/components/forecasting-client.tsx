@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -16,21 +17,30 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { getDemandForecast } from "@/app/forecasting/actions";
 import { useToast } from "@/hooks/use-toast";
 import type { PredictProductDemandOutput } from "@/ai/flows/predict-product-demand";
 import DemandForecastChart from "./demand-forecast-chart";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const formSchema = z.object({
   productName: z.string().min(1, "Product name is required."),
-  historicalData: z
-    .string()
-    .min(1, "Historical data is required.")
-    .refine((data) => /^\d+(,\s*\d+)*$/.test(data), "Data must be a comma-separated list of numbers."),
-  forecastHorizon: z.coerce.number().int().min(1, "Forecast horizon must be at least 1.").max(100, "Forecast horizon cannot exceed 100."),
+  historicalDataRange: z.coerce.number().int().positive("Please select a historical data range."),
+  forecastHorizon: z.coerce.number().int().min(1, "Please select a forecast horizon."),
 });
+
+const products = ["Laptops", "Monitors", "Keyboards", "Mice"];
+const historicalRanges = [
+    { label: "Last 6 Months", value: 6 },
+    { label: "Last 12 Months", value: 12 },
+    { label: "Last 24 Months", value: 24 },
+];
+const forecastHorizons = [
+    { label: "Next 3 Months", value: 3 },
+    { label: "Next 6 Months", value: 6 },
+    { label: "Next 12 Months", value: 12 },
+];
 
 export default function ForecastingClient() {
   const [isLoading, setIsLoading] = useState(false);
@@ -41,7 +51,7 @@ export default function ForecastingClient() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       productName: "Laptops",
-      historicalData: "150, 155, 160, 162, 165, 170, 168, 175, 180, 185, 190, 188",
+      historicalDataRange: 12,
       forecastHorizon: 12,
     },
   });
@@ -64,16 +74,47 @@ export default function ForecastingClient() {
     <div className="space-y-8">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
             <FormField
               control={form.control}
               name="productName"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Product Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., Laptops" {...field} />
-                  </FormControl>
+                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a product" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {products.map(product => (
+                        <SelectItem key={product} value={product}>{product}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="historicalDataRange"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Historical Data</FormLabel>
+                   <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)}>
+                     <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a range" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                       {historicalRanges.map(range => (
+                        <SelectItem key={range.value} value={String(range.value)}>{range.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
@@ -83,32 +124,25 @@ export default function ForecastingClient() {
               name="forecastHorizon"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Forecast Horizon (periods)</FormLabel>
-                  <FormControl>
-                    <Input type="number" placeholder="e.g., 12" {...field} />
-                  </FormControl>
+                  <FormLabel>Forecast Horizon</FormLabel>
+                   <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a horizon" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {forecastHorizons.map(horizon => (
+                        <SelectItem key={horizon.value} value={String(horizon.value)}>{horizon.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
           </div>
-          <FormField
-            control={form.control}
-            name="historicalData"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Historical Sales Data</FormLabel>
-                <FormControl>
-                  <Textarea
-                    placeholder="Enter comma-separated values, e.g., 150, 155, 160..."
-                    className="h-24"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          
           <Button type="submit" disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Generate Forecast
@@ -142,7 +176,7 @@ export default function ForecastingClient() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-3xl font-bold">{result.forecastedDemand.reduce((a, b) => a + b, 0).toLocaleString()}</p>
-                         <p className="text-sm text-muted-foreground">Total units over {form.getValues('forecastHorizon')} periods</p>
+                         <p className="text-sm text-muted-foreground">Total units over {form.getValues('forecastHorizon')} months</p>
                     </CardContent>
                 </Card>
             </div>
