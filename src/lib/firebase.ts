@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBlxWnsCc4D2IPdGkLK1980sBGV3Ll9iRk",
+  apiKey: "AIzaSyBlxWnsCc4D2IPdGkLK1980sBGV3Ll9iRg",
   authDomain: "supplychainai-cdqvg.firebaseapp.com",
   projectId: "supplychainai-cdqvg",
   storageBucket: "supplychainai-cdqvg.appspot.com",

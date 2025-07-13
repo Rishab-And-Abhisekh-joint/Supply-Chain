@@ -3,6 +3,7 @@
 
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell, LabelList, type TooltipProps } from "recharts";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingDown, TrendingUp, AlertTriangle } from "lucide-react";
@@ -116,6 +117,7 @@ const CustomizedLabel = (props: any) => {
 };
 
 export default function InventoryChart({ data, view }: InventoryChartProps) {
+  const router = useRouter();
   const { theme } = useTheme();
   const [chartColors, setChartColors] = useState({
     primary: "",
@@ -149,6 +151,27 @@ export default function InventoryChart({ data, view }: InventoryChartProps) {
     };
   });
 
+  const handleBarClick = (data: any, index: number) => {
+    if (view !== 'admin' || !data) return;
+
+    const total = data.warehouses.reduce((sum: number, w: WarehouseStock) => sum + w.total, 0);
+    if (total < ADMIN_CRITICAL_THRESHOLD) {
+      // Find the warehouse with the lowest stock for this product
+      const lowStockWarehouse = data.warehouses.reduce((minWarehouse: WarehouseStock, currentWarehouse: WarehouseStock) => {
+          return currentWarehouse.total < minWarehouse.total ? currentWarehouse : minWarehouse;
+      }, data.warehouses[0]);
+
+      if (lowStockWarehouse) {
+        const warehouseMockAddress: {[key: string]: string} = {
+            "Warehouse A": "DTDC Hub, New York",
+            "Warehouse B": "Blue Dart Warehouse, Chicago",
+        }
+        const origin = warehouseMockAddress[lowStockWarehouse.name] || lowStockWarehouse.name;
+        router.push(`/logistics?origin=${encodeURIComponent(origin)}`);
+      }
+    }
+  };
+
   if (!chartColors.primary || data.length === 0) {
     return <Skeleton className="h-[300px] w-full" />;
   }
@@ -172,7 +195,11 @@ export default function InventoryChart({ data, view }: InventoryChartProps) {
   return (
     <div style={{ width: '100%', height: 300 }}>
         <ResponsiveContainer>
-            <BarChart data={chartData} margin={{ top: 25, right: 10, left: 0, bottom: 0 }}>
+            <BarChart 
+              data={chartData} 
+              margin={{ top: 25, right: 10, left: 0, bottom: 0 }}
+              onClick={handleBarClick}
+            >
                 <XAxis
                     dataKey="name"
                     stroke={chartColors.mutedForeground}
@@ -193,7 +220,11 @@ export default function InventoryChart({ data, view }: InventoryChartProps) {
                 />
                 <Bar dataKey="total" radius={[4, 4, 0, 0]}>
                    {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={getBarColor(entry)}
+                          className={view === 'admin' && entry.total < ADMIN_CRITICAL_THRESHOLD ? "cursor-pointer" : ""} 
+                        />
                     ))}
                     <LabelList dataKey="total" content={<CustomizedLabel view={view} />} />
                 </Bar>

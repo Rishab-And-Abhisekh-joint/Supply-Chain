@@ -1,7 +1,11 @@
+
+"use client";
+
 import LogisticsClient from "@/components/logistics-client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Suspense } from "react";
 
-export default function LogisticsPage() {
+function LogisticsPage() {
   return (
     <Card>
       <CardHeader>
@@ -15,4 +19,12 @@ export default function LogisticsPage() {
       </CardContent>
     </Card>
   );
+}
+
+export default function LogisticsPageWrapper() {
+  return (
+    <Suspense fallback={<div>Loading logistics...</div>}>
+      <LogisticsPage />
+    </Suspense>
+  )
 }

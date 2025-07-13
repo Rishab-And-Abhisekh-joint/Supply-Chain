@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useSearchParams } from "next/navigation";
 import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit, Truck } from "lucide-react";
 import Map, { Source, Layer, type MapRef } from 'react-map-gl';
 import type { LngLatBoundsLike } from 'mapbox-gl';
@@ -50,8 +51,8 @@ const orderDetailsSchema = z.object({
 
 
 const mockLocations = [
-    { name: "DTDC Hub, New York", address: "New York, NY" },
-    { name: "Blue Dart Warehouse, Chicago", address: "Chicago, IL" },
+    { name: "DTDC Hub, New York", address: "DTDC Hub, New York" },
+    { name: "Blue Dart Warehouse, Chicago", address: "Blue Dart Warehouse, Chicago" },
     { name: "FedEx Center, Houston", address: "Houston, TX" },
     { name: "Googleplex, Mountain View", address: "1600 Amphitheatre Parkway, Mountain View, CA" },
     { name: "Apple Park, Cupertino", address: "1 Apple Park Way, Cupertino, CA" },
@@ -67,8 +68,8 @@ const initialViewState = {
 
 const getRouteData = (origin: string, destination: string): { geojson: GeoJSON.Feature<GeoJSON.LineString>, bounds: LngLatBoundsLike } => {
     const locations: {[key: string]: [number, number]} = {
-        "new york, ny": [-74.0060, 40.7128],
-        "chicago, il": [-87.6298, 41.8781],
+        "dtdc hub, new york": [-74.0060, 40.7128],
+        "blue dart warehouse, chicago": [-87.6298, 41.8781],
         "houston, tx": [-95.3698, 29.7604],
         "1600 amphitheatre parkway, mountain view, ca": [-122.084, 37.422],
         "1 apple park way, cupertino, ca": [-122.0322, 37.3318],
@@ -233,7 +234,7 @@ function FinalizeOrderDialog({
     );
 }
 
-export default function LogisticsClient() {
+function LogisticsClientContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [proposedResult, setProposedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
   const [confirmedResult, setConfirmedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
@@ -245,17 +246,9 @@ export default function LogisticsClient() {
   const { theme } = useTheme();
   const [primaryColor, setPrimaryColor] = useState("");
   const mapRef = useRef<MapRef>(null);
+  const searchParams = useSearchParams();
   
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const style = getComputedStyle(document.body);
-      const primaryHsl = style.getPropertyValue("--primary").trim();
-      const formattedHsl = primaryHsl.replace(/ /g, ',');
-      setPrimaryColor(`hsl(${formattedHsl})`);
-    }
-  }, [theme]);
 
   const optimizationForm = useForm<z.infer<typeof optimizationFormSchema>>({
     resolver: zodResolver(optimizationFormSchema),
@@ -281,6 +274,23 @@ export default function LogisticsClient() {
       packageSize: "Medium",
     },
   });
+
+  useEffect(() => {
+    const originFromQuery = searchParams.get('origin');
+    if (originFromQuery) {
+        optimizationForm.setValue('origin', originFromQuery);
+    }
+  }, [searchParams, optimizationForm]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const style = getComputedStyle(document.body);
+      const primaryHsl = style.getPropertyValue("--primary").trim();
+      const formattedHsl = primaryHsl.replace(/ /g, ',');
+      setPrimaryColor(`hsl(${formattedHsl})`);
+    }
+  }, [theme]);
+
 
   async function onOptimizationSubmit(values: z.infer<typeof optimizationFormSchema>) {
     setIsLoading(true);
@@ -410,7 +420,7 @@ export default function LogisticsClient() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Origin</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a starting location" />
@@ -434,7 +444,7 @@ export default function LogisticsClient() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Destination</FormLabel>
-                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a destination location" />
@@ -643,4 +653,12 @@ export default function LogisticsClient() {
       </div>
     </div>
   );
+}
+
+export default function LogisticsClient() {
+  return (
+    <React.Suspense fallback={<div>Loading...</div>}>
+      <LogisticsClientContent />
+    </React.Suspense>
+  )
 }
