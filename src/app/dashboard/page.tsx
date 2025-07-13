@@ -3,11 +3,11 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import InventoryChart from "@/components/inventory-chart";
 import OrderStatusTable from "@/components/order-status-table";
 import { AlertCircle, PackageCheck, Truck } from "lucide-react";
+import LiveRoutesMap from '@/components/live-routes-map';
 
 export default function DashboardPage() {
   const [anomalyCount, setAnomalyCount] = useState(3);
@@ -87,13 +87,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="relative h-[300px] w-full overflow-hidden rounded-lg">
-                <Image
-                    src="https://placehold.co/600x400.png"
-                    alt="Map of delivery routes"
-                    layout="fill"
-                    objectFit="cover"
-                    data-ai-hint="map route"
-                />
+                <LiveRoutesMap />
             </div>
           </CardContent>
         </Card>
