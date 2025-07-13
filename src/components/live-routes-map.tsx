@@ -27,6 +27,16 @@ const transitData = {
                 orders: ['ORD791'],
                 coordinates: [[-118.2437, 34.0522], [-117.1611, 32.7157]],
             },
+            {
+                id: 'truck-3',
+                orders: ['ORD792', 'ORD793'],
+                coordinates: [[-80.1918, 25.7617], [-84.3880, 33.7490]],
+            },
+            {
+                id: 'truck-4',
+                orders: ['ORD794'],
+                coordinates: [[-104.9903, 39.7392], [-111.8910, 40.7608]],
+            }
         ]
     },
     trains: {
@@ -40,6 +50,11 @@ const transitData = {
                 orders: ['ORD801', 'ORD802', 'ORD803'],
                 coordinates: [[-87.6298, 41.8781], [-90.1994, 38.6270], [-95.3698, 29.7604]],
             },
+            {
+                id: 'train-2',
+                orders: ['ORD804', 'ORD805'],
+                coordinates: [[-122.3321, 47.6062], [-122.4194, 37.7749]]
+            }
         ]
     },
     flights: {
@@ -53,6 +68,11 @@ const transitData = {
                 orders: ['ORD905', 'ORD906'],
                 coordinates: [[-74.006, 40.7128], [-118.2437, 34.0522]],
             },
+            {
+                id: 'flight-2',
+                orders: ['ORD907'],
+                coordinates: [[-87.6298, 41.8781], [-104.9903, 39.7392]]
+            }
         ]
     },
 };
