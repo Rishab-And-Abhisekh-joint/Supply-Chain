@@ -1,3 +1,8 @@
+
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import InventoryChart from "@/components/inventory-chart";
@@ -5,6 +10,18 @@ import OrderStatusTable from "@/components/order-status-table";
 import { AlertCircle, PackageCheck, Truck } from "lucide-react";
 
 export default function DashboardPage() {
+  const [anomalyCount, setAnomalyCount] = useState(3);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (Math.random() > 0.7) { // 30% chance to increase anomaly count every 4 seconds
+          setAnomalyCount(prev => prev + 1);
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -36,20 +53,22 @@ export default function DashboardPage() {
             </p>
           </CardContent>
         </Card>
-        <Card className="border-destructive text-destructive">
-           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Anomalies Detected
-            </CardTitle>
-            <AlertCircle className="h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">3</div>
-            <p className="text-xs text-destructive/80">
-              Immediate action required
-            </p>
-          </CardContent>
-        </Card>
+        <Link href="/operations">
+          <Card className="border-destructive text-destructive transition-all hover:bg-destructive/10">
+             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Anomalies Detected
+              </CardTitle>
+              <AlertCircle className="h-4 w-4" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{anomalyCount}</div>
+              <p className="text-xs text-destructive/80">
+                Immediate action required
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">
