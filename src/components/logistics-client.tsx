@@ -1,12 +1,13 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit } from "lucide-react";
-import Map, { Source, Layer } from 'react-map-gl';
+import Map, { Source, Layer, type MapRef } from 'react-map-gl';
+import type { LngLatBoundsLike } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTheme } from "next-themes";
 
@@ -60,7 +61,7 @@ const initialViewState = {
 
 // A very basic approximation to get a "route" for the map.
 // In a real app, you would use a directions API.
-const getRouteGeoJSON = (origin: string, destination: string): GeoJSON.Feature<GeoJSON.LineString> => {
+const getRouteData = (origin: string, destination: string): { geojson: GeoJSON.Feature<GeoJSON.LineString>, bounds: LngLatBoundsLike } => {
     // Super simplified geocoding for common US cities for demo purposes
     const locations: {[key: string]: [number, number]} = {
         "new york, ny": [-74.0060, 40.7128],
@@ -73,14 +74,22 @@ const getRouteGeoJSON = (origin: string, destination: string): GeoJSON.Feature<G
     }
     const originCoords = locations[origin.toLowerCase()] || [-98.5795, 39.8283];
     const destinationCoords = locations[destination.toLowerCase()] || [-98.5795, 39.8283];
+    
+    const bounds: LngLatBoundsLike = [
+        [Math.min(originCoords[0], destinationCoords[0]), Math.min(originCoords[1], destinationCoords[1])],
+        [Math.max(originCoords[0], destinationCoords[0]), Math.max(originCoords[1], destinationCoords[1])]
+    ];
 
     return {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-            type: 'LineString',
-            coordinates: [originCoords, destinationCoords]
-        }
+        geojson: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+                type: 'LineString',
+                coordinates: [originCoords, destinationCoords]
+            }
+        },
+        bounds,
     };
 }
 
@@ -94,6 +103,7 @@ export default function LogisticsClient() {
   const { toast } = useToast();
   const { theme } = useTheme();
   const [primaryColor, setPrimaryColor] = useState("");
+  const mapRef = useRef<MapRef>(null);
   
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
 
@@ -142,14 +152,21 @@ export default function LogisticsClient() {
     setIsLoading(false);
   }
 
+  const handleConfirmRoute = () => {
+      const { origin, destination } = optimizationForm.getValues();
+      const { geojson, bounds } = getRouteData(origin, destination);
+      setRouteGeoJSON(geojson);
+      mapRef.current?.fitBounds(bounds, { padding: 40, duration: 1000 });
+  };
+
+
   function onManualSubmit(values: z.infer<typeof manualRouteFormSchema>) {
     const manualResult: OptimizeLogisticsDecisionsOutput = {
       ...values,
       reasoning: "Manually entered by user.",
       confirmation: true,
     }
-    const { origin, destination } = optimizationForm.getValues();
-    setRouteGeoJSON(getRouteGeoJSON(origin, destination));
+    handleConfirmRoute();
     setConfirmedResult(manualResult);
     setPostRejectionStep('idle');
     toast({ title: "Route Confirmed", description: "The manual logistics plan has been finalized." });
@@ -157,8 +174,7 @@ export default function LogisticsClient() {
 
   const handleAccept = () => {
     if (proposedResult) {
-      const { origin, destination } = optimizationForm.getValues();
-      setRouteGeoJSON(getRouteGeoJSON(origin, destination));
+      handleConfirmRoute();
       setConfirmedResult({ ...proposedResult, confirmation: true });
       setProposedResult(null);
       toast({ title: "Route Confirmed", description: "The logistics plan has been finalized." });
@@ -198,6 +214,7 @@ export default function LogisticsClient() {
     return (
         <div className="relative h-[400px] w-full overflow-hidden rounded-md">
             <Map
+                ref={mapRef}
                 mapboxAccessToken={mapboxToken}
                 initialViewState={initialViewState}
                 mapStyle={theme === 'dark' ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/streets-v11"}
