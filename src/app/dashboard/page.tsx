@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import InventoryChart, { type InventoryData } from "@/components/inventory-chart";
 import { AlertCircle, PackageCheck, Truck } from "lucide-react";
@@ -71,16 +72,20 @@ const initialOrders: Order[] = [
     { id: 'ORD998', customerName: 'Sophia Davis', customerId: 'CUST007', orderDate: '2023-10-25', expectedDate: '2023-11-03', status: 'Processing', deliveryType: 'Train', totalAmount: 800.00, amountPaid: 200.00, transitId: null },
 ];
 
-const generateNewOrder = (orderCount: number): Order => {
+const generateNewOrder = (orderCount: number, fromLogistics: boolean = false): Order => {
     const newId = `ORD${1000 + orderCount}`;
-    const customers = [['Lucas', 'Martinez'], ['Chloe', 'Garcia'], ['Mason', 'Rodriguez'], ['Zoe', 'Lee']];
-    const customer = customers[orderCount % customers.length];
-    const total = Math.floor(Math.random() * 500) + 50;
-    const paid = Math.random() > 0.6 ? total : Math.floor(Math.random() * total);
+    const customers = [
+        ['Lucas', 'Martinez'], ['Chloe', 'Garcia'], ['Mason', 'Rodriguez'], ['Zoe', 'Lee']
+    ];
+    const customer = fromLogistics ? ['New Logistics', 'Order'] : customers[orderCount % customers.length];
+    const customerId = fromLogistics ? 'CUST-LOG' : `CUST${String(100 + orderCount).padStart(3, '0')}`;
+    const total = fromLogistics ? 2500 + Math.floor(Math.random() * 1000) : Math.floor(Math.random() * 500) + 50;
+    const paid = fromLogistics ? total * 0.20 : Math.random() > 0.6 ? total : Math.floor(Math.random() * total);
+    
     return {
         id: newId,
         customerName: `${customer[0]} ${customer[1]}`,
-        customerId: `CUST${String(100 + orderCount).padStart(3, '0')}`,
+        customerId: customerId,
         orderDate: new Date().toISOString().split('T')[0],
         expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         status: 'Processing',
@@ -91,10 +96,11 @@ const generateNewOrder = (orderCount: number): Order => {
     };
 }
 
-
 const calculateTotal = (data: InventoryData[]) => data.reduce((sum, item) => sum + item.warehouses.reduce((wSum, w) => wSum + w.total, 0), 0);
 
-export default function DashboardPage() {
+function DashboardPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [anomalyCount, setAnomalyCount] = useState(3);
   const [inventoryData, setInventoryData] = useState<InventoryData[]>(initialInventoryData);
   const [totalInventory, setTotalInventory] = useState(calculateTotal(initialInventoryData));
@@ -105,6 +111,17 @@ export default function DashboardPage() {
 
 
   useEffect(() => {
+    // Check if redirected from logistics page with a new order
+    if (searchParams.has('newOrder')) {
+        orderCounter.current += 1;
+        const newOrder = generateNewOrder(orderCounter.current, true);
+        setOrders(prev => [newOrder, ...prev]);
+
+        // Clean up the URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({...window.history.state, as: newUrl, url: newUrl}, '', newUrl);
+    }
+    
     // Anomaly simulation
     const anomalyInterval = setInterval(() => {
       if (Math.random() > 0.7) { 
@@ -145,15 +162,34 @@ export default function DashboardPage() {
     // Order status simulation
     const orderStatusInterval = setInterval(() => {
         setOrders(prevOrders => {
-            const orderToUpdateIndex = Math.floor(Math.random() * prevOrders.length);
-            return prevOrders.map((order, index) => {
-                if (index === orderToUpdateIndex && order.status === "Shipped") {
-                    if(Math.random() > 0.8) {
-                        return { ...order, status: "Delivered", expectedDate: new Date().toISOString().split('T')[0] };
+            const processingOrders = prevOrders.filter(o => o.status === 'Processing');
+            if (processingOrders.length > 0) {
+                const orderToUpdateIndex = Math.floor(Math.random() * processingOrders.length);
+                const orderToUpdateId = processingOrders[orderToUpdateIndex].id;
+                
+                return prevOrders.map(order => {
+                    if (order.id === orderToUpdateId) {
+                         const availableTrucks = ['truck-1', 'truck-2', 'truck-3', 'truck-4', 'truck-5', 'truck-6'];
+                         return { 
+                             ...order, 
+                             status: "Shipped",
+                             transitId: availableTrucks[Math.floor(Math.random() * availableTrucks.length)]
+                         };
                     }
+                    return order;
+                });
+            }
+
+            const shippedOrders = prevOrders.filter(o => o.status === 'Shipped');
+            if (shippedOrders.length > 0) {
+                 if(Math.random() > 0.8) {
+                    const orderToUpdateIndex = Math.floor(Math.random() * shippedOrders.length);
+                    const orderToUpdateId = shippedOrders[orderToUpdateIndex].id;
+                    return prevOrders.map(order => order.id === orderToUpdateId ? { ...order, status: "Delivered", expectedDate: new Date().toISOString().split('T')[0] } : order)
                 }
-                return order;
-            });
+            }
+
+            return prevOrders;
         });
     }, 7000);
 
@@ -179,6 +215,7 @@ export default function DashboardPage() {
         clearInterval(newOrderInterval);
         clearInterval(cleanupInterval);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePayment = (orderId: string, amount: number) => {
@@ -282,4 +319,13 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
+}
+
+// Wrap the component in a Suspense boundary to handle the initial render of useSearchParams
+export default function DashboardPage() {
+    return (
+        <React.Suspense fallback={<div>Loading...</div>}>
+            <DashboardPageContent />
+        </React.Suspense>
+    )
 }

@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit, Truck } from "lucide-react";
 import Map, { Source, Layer, type MapRef } from 'react-map-gl';
 import type { LngLatBoundsLike } from 'mapbox-gl';
@@ -262,6 +262,7 @@ function LogisticsClientContent() {
   const [primaryColor, setPrimaryColor] = useState("");
   const mapRef = useRef<MapRef>(null);
   const searchParams = useSearchParams();
+  const router = useRouter();
   
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
 
@@ -375,15 +376,10 @@ function LogisticsClientContent() {
   
   const handlePlaceOrder = () => {
       setIsOrderDialogOpen(false);
-      setConfirmedResult(null); // Reset the flow
-      setRouteGeoJSON(null);
-      setOrderStep(1);
-      orderDetailsForm.reset();
-      optimizationForm.reset({
-        origin: "1600 Amphitheatre Parkway, Mountain View, CA",
-        destination: "1 Apple Park Way, Cupertino, CA",
-      });
-      toast({ title: "Order Placed!", description: "Your shipment has been scheduled." });
+      toast({ title: "Order Placed!", description: "Your shipment has been scheduled. Redirecting to dashboard..." });
+      
+      // Redirect to dashboard with a query param to signal a new order
+      router.push('/dashboard?newOrder=true');
   }
   
   const result = confirmedResult || proposedResult;
