@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle } from "lucide-react";
 import Map, { Source, Layer } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -69,8 +70,18 @@ export default function LogisticsClient() {
   const [result, setResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
   const [routeGeoJSON, setRouteGeoJSON] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
   const { toast } = useToast();
+  const { theme } = useTheme();
+  const [primaryColor, setPrimaryColor] = useState("");
   
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const style = getComputedStyle(document.body);
+      const primaryHsl = style.getPropertyValue("--primary").trim();
+      setPrimaryColor(`hsl(${primaryHsl})`);
+    }
+  }, [theme]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -111,6 +122,10 @@ export default function LogisticsClient() {
       )
     }
 
+    if (!primaryColor) {
+        return <Skeleton className="h-[400px] w-full" />;
+    }
+
     return (
         <div className="relative h-[400px] w-full overflow-hidden rounded-md">
             <Map
@@ -124,7 +139,7 @@ export default function LogisticsClient() {
                             id="route-layer"
                             type="line"
                             paint={{
-                                'line-color': 'hsl(var(--primary))',
+                                'line-color': primaryColor,
                                 'line-width': 4,
                                 'line-opacity': 0.8
                             }}
