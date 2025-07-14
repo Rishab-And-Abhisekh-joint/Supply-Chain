@@ -6,10 +6,9 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2, User, Settings, LogOut } from "lucide-react";
-import type { User as FirebaseUser } from 'firebase/auth';
-import { onAuthStateChanged, signOut, getRedirectResult } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { useToast } from "@/hooks/use-toast";
+import { useAuth } from '@/contexts/AuthContext';
 
 import { Button } from "@/components/ui/button";
 import {
@@ -64,60 +63,8 @@ const customerRoutes = ['/customer/inventory'];
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { toast } = useToast();
-  const [user, setUser] = React.useState<FirebaseUser | null>(null);
-  const [authLoading, setAuthLoading] = React.useState(true);
+  const { user, loading: authLoading } = useAuth();
   const { setOpen, open } = useSidebar();
-
-  React.useEffect(() => {
-    console.log("AppLayout: useEffect for auth processing is running.");
-
-    const processAuth = async () => {
-      try {
-        console.log("AppLayout: Checking for redirect result...");
-        const result = await getRedirectResult(auth);
-        if (result) {
-          console.log("AppLayout: Google redirect result found.", result.user);
-          toast({ title: "Logged in successfully!" });
-          router.push('/customer/inventory');
-        } else {
-          console.log("AppLayout: No redirect result.");
-        }
-      } catch (error: any) {
-        console.error("AppLayout: Error during getRedirectResult:", error);
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: error.message || "Could not complete sign-in. Please try again.",
-        });
-      }
-
-      console.log("AppLayout: Setting up onAuthStateChanged listener.");
-      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-        console.log("AppLayout: onAuthStateChanged triggered. User:", currentUser);
-        setUser(currentUser);
-        if (authLoading) {
-            console.log("AppLayout: Auth loading finished.");
-            setAuthLoading(false);
-        }
-      });
-      
-      return unsubscribe;
-    };
-
-    const unsubscribePromise = processAuth();
-
-    return () => {
-      console.log("AppLayout: Cleaning up auth useEffect.");
-      unsubscribePromise.then(unsubscribe => {
-        if (unsubscribe) {
-          console.log("AppLayout: Unsubscribing from onAuthStateChanged.");
-          unsubscribe();
-        }
-      });
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   React.useEffect(() => {
     if (authLoading) {
