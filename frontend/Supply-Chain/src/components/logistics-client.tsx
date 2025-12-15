@@ -1,0 +1,689 @@
+
+"use client";
+
+import * as React from "react";
+import { useState, useEffect, useRef } from "react";
+import { useForm, type UseFormReturn } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, Check, X, RefreshCw, Edit, Truck } from "lucide-react";
+import Map, { Source, Layer, type MapRef } from 'react-map-gl';
+import type { LngLatBoundsLike } from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { useTheme } from "next-themes";
+
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { getLogisticsOptimization } from "@/app/logistics/actions";
+import { useToast } from "@/hooks/use-toast";
+import type { OptimizeLogisticsDecisionsOutput } from "@/ai/flows/optimize-logistics-decisions";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
+import { Skeleton } from "./ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Badge } from "./ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+
+const optimizationFormSchema = z.object({
+  origin: z.string().min(1, "Origin address is required."),
+  destination: z.string().min(1, "Destination address is required."),
+});
+
+const manualRouteFormSchema = z.object({
+  optimalRouteSummary: z.string().min(1, "Route summary is required."),
+  estimatedTime: z.string().min(1, "Estimated time is required."),
+  estimatedDistance: z.string().min(1, "Estimated distance is required."),
+});
+
+const orderDetailsSchema = z.object({
+  packageCount: z.coerce.number().int().min(1, "At least one package is required."),
+  packageSize: z.string().min(1, "Package size is required (e.g., Medium)"),
+  packageDescription: z.string().optional(),
+});
+
+
+const mockLocations = [
+    { name: "DTDC Hub, New York", address: "DTDC Hub, New York" },
+    { name: "Blue Dart Warehouse, Chicago", address: "Blue Dart Warehouse, Chicago" },
+    { name: "FedEx Center, Houston", address: "Houston, TX" },
+    { name: "Googleplex, Mountain View", address: "1600 Amphitheatre Parkway, Mountain View, CA" },
+    { name: "Apple Park, Cupertino", address: "1 Apple Park Way, Cupertino, CA" },
+    { name: "Starbucks Reserve, Seattle", address: "1124 Pike St, Seattle, WA" },
+    { name: "Tesla Gigafactory, Austin", address: "13101 Harold Green Road, Austin, TX" },
+    { name: "Customer Address", address: "123 Customer St, Clientville" },
+]
+
+const initialViewState = {
+  longitude: -98.5795,
+  latitude: 39.8283,
+  zoom: 3.5
+};
+
+const getRouteData = (origin: string, destination: string): { geojson: GeoJSON.Feature<GeoJSON.LineString>, bounds: LngLatBoundsLike } => {
+    const locations: {[key: string]: [number, number]} = {
+        "dtdc hub, new york": [-74.0060, 40.7128],
+        "blue dart warehouse, chicago": [-87.6298, 41.8781],
+        "houston, tx": [-95.3698, 29.7604],
+        "1600 amphitheatre parkway, mountain view, ca": [-122.084, 37.422],
+        "1 apple park way, cupertino, ca": [-122.0322, 37.3318],
+        "1124 pike st, seattle, wa": [-122.330, 47.614],
+        "13101 harold green road, austin, tx": [-97.620, 30.224],
+        "123 customer st, clientville": [-122.4194, 37.7749], // Mock coords for customer
+    }
+    const originCoords = locations[origin.toLowerCase()] || [-98.5795, 39.8283];
+    const destinationCoords = locations[destination.toLowerCase()] || [-98.5795, 39.8283];
+    
+    const bounds: LngLatBoundsLike = [
+        [Math.min(originCoords[0], destinationCoords[0]), Math.min(originCoords[1], destinationCoords[1])],
+        [Math.max(originCoords[0], destinationCoords[0]), Math.max(originCoords[1], destinationCoords[1])]
+    ];
+
+    return {
+        geojson: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+                type: 'LineString',
+                coordinates: [originCoords, destinationCoords]
+            }
+        },
+        bounds,
+    };
+}
+
+interface FinalizeOrderDialogProps {
+  isOrderDialogOpen: boolean;
+  setIsOrderDialogOpen: (open: boolean) => void;
+  orderStep: number;
+  setOrderStep: (step: number) => void;
+  orderDetailsForm: UseFormReturn<z.infer<typeof orderDetailsSchema>>;
+  optimizationForm: UseFormReturn<z.infer<typeof optimizationFormSchema>>;
+  handlePlaceOrder: () => void;
+  confirmedResult: OptimizeLogisticsDecisionsOutput | null;
+}
+
+function FinalizeOrderDialog({
+  isOrderDialogOpen,
+  setIsOrderDialogOpen,
+  orderStep,
+  setOrderStep,
+  orderDetailsForm,
+  optimizationForm,
+  handlePlaceOrder,
+  confirmedResult,
+}: FinalizeOrderDialogProps) {
+    const estimatedCost = confirmedResult ? (orderDetailsForm.getValues('packageCount') * 25.50).toFixed(2) : '0.00';
+    const totalCost = (parseFloat(estimatedCost) * 1.08).toFixed(2); // with 8% tax
+    const advancePayment = (parseFloat(totalCost) * 0.20).toFixed(2); // 20% advance
+
+    return (
+      <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
+        <DialogTrigger asChild>
+          <Button className="w-full">
+            <Truck className="mr-2 h-4 w-4" />
+            Finalize and Place Order
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Place Your Order</DialogTitle>
+            <DialogDescription>
+              {orderStep === 1
+                ? 'Confirm package details to get an estimated cost.'
+                : 'Review the final details and confirm your order.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {orderStep === 1 && (
+            <Form {...orderDetailsForm}>
+              <form
+                onSubmit={orderDetailsForm.handleSubmit(() => setOrderStep(2))}
+                className="space-y-4"
+              >
+                <FormField
+                    control={orderDetailsForm.control}
+                    name="packageDescription"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Package Contents</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., 2,500 Laptops" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={orderDetailsForm.control}
+                    name="packageCount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>No. of Packages</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={orderDetailsForm.control}
+                    name="packageSize"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Avg. Package Size</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <Card className="bg-muted/50">
+                  <CardContent className="pt-6 text-sm space-y-2">
+                    <p>
+                      <strong>Route:</strong>{' '}
+                      {optimizationForm.getValues('origin')} to{' '}
+                      {optimizationForm.getValues('destination')}
+                    </p>
+                    <p>
+                      <strong>Est. Cost:</strong> ${estimatedCost}
+                    </p>
+                    <p>
+                      <strong>Est. Arrival:</strong>{' '}
+                      {new Date(
+                        Date.now() + 2 * 24 * 60 * 60 * 1000
+                      ).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                </Card>
+                <DialogFooter>
+                  <Button type="submit">Place Order</Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          )}
+
+          {orderStep === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Your order for {orderDetailsForm.getValues('packageCount')}{' '}
+                package(s) is almost ready. Please review and confirm.
+              </p>
+              <Card>
+                <CardContent className="pt-6 space-y-2">
+                  <div className="flex justify-between font-medium">
+                    <span>Total Estimated Cost</span>
+                    <span>${totalCost}</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>(includes 8% tax)</span>
+                  </div>
+                  <hr className="my-2" />
+                  <div className="flex justify-between font-bold text-primary text-lg">
+                    <span>Advance Payment Due</span>
+                    <span>${advancePayment}</span>
+                  </div>
+                </CardContent>
+              </Card>
+              <DialogFooter className="sm:justify-between">
+                <Button variant="ghost" onClick={() => setOrderStep(1)}>
+                  Back
+                </Button>
+                <Button onClick={handlePlaceOrder}>Confirm & Pay</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+}
+
+function LogisticsClientContent() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [proposedResult, setProposedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
+  const [confirmedResult, setConfirmedResult] = useState<OptimizeLogisticsDecisionsOutput | null>(null);
+  const [routeGeoJSON, setRouteGeoJSON] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+  const [postRejectionStep, setPostRejectionStep] = useState<'idle' | 'prompt' | 'manual_entry'>('idle');
+  const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
+  const [orderStep, setOrderStep] = useState(1);
+  const { toast } = useToast();
+  const { theme } = useTheme();
+  const [primaryColor, setPrimaryColor] = useState("");
+  const mapRef = useRef<MapRef>(null);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY;
+
+  const optimizationForm = useForm<z.infer<typeof optimizationFormSchema>>({
+    resolver: zodResolver(optimizationFormSchema),
+    defaultValues: {
+      origin: "1600 Amphitheatre Parkway, Mountain View, CA",
+      destination: "1 Apple Park Way, Cupertino, CA",
+    },
+  });
+
+  const manualRouteForm = useForm<z.infer<typeof manualRouteFormSchema>>({
+    resolver: zodResolver(manualRouteFormSchema),
+    defaultValues: {
+      optimalRouteSummary: "",
+      estimatedTime: "",
+      estimatedDistance: "",
+    },
+  });
+
+  const orderDetailsForm = useForm<z.infer<typeof orderDetailsSchema>>({
+    resolver: zodResolver(orderDetailsSchema),
+    defaultValues: {
+      packageCount: 1,
+      packageSize: "Medium",
+      packageDescription: "",
+    },
+  });
+
+  useEffect(() => {
+    const originFromQuery = searchParams.get('origin');
+    const destinationFromQuery = searchParams.get('destination');
+    const productName = searchParams.get('productName');
+    const quantity = searchParams.get('quantity');
+
+    if (originFromQuery) {
+        optimizationForm.setValue('origin', originFromQuery);
+    }
+     if (destinationFromQuery) {
+        optimizationForm.setValue('destination', destinationFromQuery);
+    }
+    if (productName && quantity) {
+      orderDetailsForm.setValue('packageDescription', `${quantity} units of ${productName}`);
+      orderDetailsForm.setValue('packageCount', Math.ceil(parseInt(quantity) / 100)); // Assuming 100 units per package
+    }
+  }, [searchParams, optimizationForm, orderDetailsForm]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const style = getComputedStyle(document.body);
+      const primaryHsl = style.getPropertyValue("--primary").trim();
+      const formattedHsl = primaryHsl.replace(/ /g, ',');
+      setPrimaryColor(`hsl(${formattedHsl})`);
+    }
+  }, [theme]);
+
+
+  async function onOptimizationSubmit(values: z.infer<typeof optimizationFormSchema>) {
+    setIsLoading(true);
+    setProposedResult(null);
+    setConfirmedResult(null);
+    setRouteGeoJSON(null);
+    setPostRejectionStep('idle');
+
+    const aiResponse = await getLogisticsOptimization(values);
+
+    if (aiResponse.success && aiResponse.data) {
+      setProposedResult(aiResponse.data);
+      toast({ title: "Route Proposed", description: "Please review and confirm the optimized route." });
+    } else {
+      toast({ variant: "destructive", title: "Error", description: aiResponse.error });
+    }
+    
+    setIsLoading(false);
+  }
+
+  const handleConfirmRoute = () => {
+      const { origin, destination } = optimizationForm.getValues();
+      const { geojson, bounds } = getRouteData(origin, destination);
+      setRouteGeoJSON(geojson);
+      setTimeout(() => mapRef.current?.fitBounds(bounds, { padding: 80, duration: 1000 }), 100);
+  };
+
+  function onManualSubmit(values: z.infer<typeof manualRouteFormSchema>) {
+    const manualResult: OptimizeLogisticsDecisionsOutput = {
+      ...values,
+      reasoning: "Manually entered by user.",
+      confirmation: true,
+    }
+    setConfirmedResult(manualResult);
+    handleConfirmRoute();
+    setPostRejectionStep('idle');
+    toast({ title: "Route Confirmed", description: "The manual logistics plan has been finalized." });
+  }
+
+  const handleAccept = () => {
+    if (proposedResult) {
+      setConfirmedResult({ ...proposedResult, confirmation: true });
+      handleConfirmRoute();
+      setProposedResult(null);
+      toast({ title: "Route Confirmed", description: "The logistics plan has been finalized." });
+    }
+  }
+
+  const handleReject = () => {
+    setProposedResult(null);
+    setPostRejectionStep('prompt');
+    toast({ variant: "destructive", title: "Route Rejected", description: "The proposed route was rejected." });
+  }
+
+  const handleTryAiAgain = () => {
+    setPostRejectionStep('idle');
+    onOptimizationSubmit(optimizationForm.getValues());
+  }
+  
+  const handlePlaceOrder = () => {
+      setIsOrderDialogOpen(false);
+      toast({ title: "Order Placed!", description: "Your shipment has been scheduled. Redirecting to dashboard..." });
+      
+      // Redirect to dashboard with a query param to signal a new order
+      router.push('/dashboard?newOrder=true');
+  }
+  
+  const result = confirmedResult || proposedResult;
+  
+  const renderMap = () => {
+    if (!mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')) {
+      return (
+         <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Mapbox Public Key Missing</AlertTitle>
+            <AlertDescription>
+              Please add your public Mapbox API key (it should start with `pk.`) to your `.env` file as `NEXT_PUBLIC_MAPBOX_API_KEY=pk.YOUR_API_KEY`. You can get a key from the Mapbox website.
+            </AlertDescription>
+          </Alert>
+      )
+    }
+
+    if (!primaryColor) {
+        return <Skeleton className="h-[400px] w-full" />;
+    }
+
+    return (
+        <div className="relative h-[400px] w-full overflow-hidden rounded-md">
+            <Map
+                ref={mapRef}
+                mapboxAccessToken={mapboxToken}
+                initialViewState={initialViewState}
+                mapStyle={theme === 'dark' ? "mapbox://styles/mapbox/dark-v11" : "mapbox://styles/mapbox/streets-v11"}
+            >
+                {routeGeoJSON && (
+                    <Source id="route-source" type="geojson" data={routeGeoJSON}>
+                        <Layer
+                            id="route-layer"
+                            type="line"
+                            paint={{
+                                'line-color': primaryColor,
+                                'line-width': 4,
+                                'line-opacity': 0.8
+                            }}
+                        />
+                    </Source>
+                )}
+            </Map>
+        </div>
+    );
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="space-y-6">
+          <Form {...optimizationForm}>
+            <form onSubmit={optimizationForm.handleSubmit(onOptimizationSubmit)} className="space-y-6">
+               <FormField
+                control={optimizationForm.control}
+                name="origin"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Origin</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a starting location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {mockLocations.map(location => (
+                           <SelectItem key={location.name} value={location.address}>
+                            {location.name}
+                           </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={optimizationForm.control}
+                name="destination"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Destination</FormLabel>
+                     <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a destination location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {mockLocations.map(location => (
+                           <SelectItem key={location.name} value={location.address}>
+                            {location.name}
+                           </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" disabled={isLoading || confirmedResult !== null || !mapboxToken || mapboxToken === 'pk.YOUR_MAPBOX_API_KEY_HERE' || mapboxToken.startsWith('sk.')}>
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Optimize Route
+              </Button>
+            </form>
+          </Form>
+          
+          {postRejectionStep === 'prompt' && !isLoading && (
+            <Card className="bg-muted dark:bg-muted/50">
+                <CardHeader>
+                    <CardTitle className="text-base">What's Next?</CardTitle>
+                    <CardDescription>The AI's suggestion was rejected. How would you like to proceed?</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col sm:flex-row gap-4">
+                    <Button onClick={handleTryAiAgain} className="w-full">
+                        <RefreshCw className="mr-2 h-4 w-4" /> Try AI Again
+                    </Button>
+                    <Button onClick={() => setPostRejectionStep('manual_entry')} variant="outline" className="w-full">
+                        <Edit className="mr-2 h-4 w-4" /> Enter Manually
+                    </Button>
+                </CardContent>
+            </Card>
+          )}
+
+          {postRejectionStep === 'manual_entry' && !isLoading && (
+             <Card>
+                <CardHeader>
+                    <CardTitle>Enter Manual Route</CardTitle>
+                    <CardDescription>Please provide the details for your custom route.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Form {...manualRouteForm}>
+                        <form onSubmit={manualRouteForm.handleSubmit(onManualSubmit)} className="space-y-4">
+                            <FormField
+                                control={manualRouteForm.control}
+                                name="optimalRouteSummary"
+                                render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Route Summary</FormLabel>
+                                    <FormControl>
+                                    <Textarea placeholder="e.g., Take I-280 S to N De Anza Blvd..." {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                                )}
+                            />
+                            <div className="flex gap-4">
+                                <FormField
+                                    control={manualRouteForm.control}
+                                    name="estimatedTime"
+                                    render={({ field }) => (
+                                    <FormItem className="flex-1">
+                                        <FormLabel>Estimated Time</FormLabel>
+                                        <FormControl>
+                                        <Input placeholder="e.g., 25 mins" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={manualRouteForm.control}
+                                    name="estimatedDistance"
+                                    render={({ field }) => (
+                                    <FormItem className="flex-1">
+                                        <FormLabel>Estimated Distance</FormLabel>
+                                        <FormControl>
+                                        <Input placeholder="e.g., 10.5 miles" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                    )}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button type="button" variant="ghost" onClick={() => setPostRejectionStep('prompt')}>Back</Button>
+                                <Button type="submit">Confirm Manual Route</Button>
+                            </div>
+                        </form>
+                    </Form>
+                </CardContent>
+            </Card>
+          )}
+
+          {isLoading && (
+            <div className="text-center">
+                <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                <p className="mt-2 text-muted-foreground">Finding optimal route...</p>
+            </div>
+          )}
+
+          {result && postRejectionStep === 'idle' && (
+            <div className="space-y-6 pt-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">
+                    {proposedResult ? "Proposed Route" : "Confirmed Route"}
+                </h3>
+                {confirmedResult && <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Route Confirmed</Badge>}
+              </div>
+
+              {proposedResult && (
+                <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
+                  <CardHeader>
+                    <CardTitle className="text-base">Confirm Optimal Route</CardTitle>
+                    <CardDescription>Does this route meet your requirements?</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex gap-4">
+                      <Button onClick={handleAccept} className="w-full">
+                        <Check className="mr-2 h-4 w-4" /> Yes, Accept Route
+                      </Button>
+                      <Button onClick={handleReject} variant="destructive" className="w-full">
+                        <X className="mr-2 h-4 w-4" /> No, Reject
+                      </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                 <Card>
+                    <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                        <Clock className="h-5 w-5 text-primary" />
+                        <CardTitle className="text-base">Est. Time</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-xl font-bold">{result.estimatedTime}</p>
+                    </CardContent>
+                </Card>
+                 <Card>
+                    <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                        <Milestone className="h-5 w-5 text-primary" />
+                        <CardTitle className="text-base">Est. Distance</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-xl font-bold">{result.estimatedDistance}</p>
+                    </CardContent>
+                </Card>
+              </div>
+              <Card>
+                    <CardHeader className="flex flex-row items-center gap-2">
+                        <Route className="h-5 w-5 text-primary" />
+                        <CardTitle>Route Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm">{result.optimalRouteSummary}</p>
+                    </CardContent>
+                </Card>
+              <Card>
+                    <CardHeader className="flex flex-row items-center gap-2">
+                        <Wand2 className="h-5 w-5 text-primary" />
+                        <CardTitle>AI Reasoning</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm">{result.reasoning}</p>
+                    </CardContent>
+                </Card>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-6">
+            <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                <MapIcon className="h-5 w-5 text-primary" />
+                Route Preview
+                </CardTitle>
+                <CardDescription>
+                {routeGeoJSON ? "Preview of the confirmed route." : "The route preview will appear here after confirmation."}
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                {renderMap()}
+            </CardContent>
+            </Card>
+
+            {confirmedResult && (
+              <FinalizeOrderDialog 
+                isOrderDialogOpen={isOrderDialogOpen}
+                setIsOrderDialogOpen={setIsOrderDialogOpen}
+                orderStep={orderStep}
+                setOrderStep={setOrderStep}
+                orderDetailsForm={orderDetailsForm}
+                optimizationForm={optimizationForm}
+                handlePlaceOrder={handlePlaceOrder}
+                confirmedResult={confirmedResult}
+              />
+            )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function LogisticsClient() {
+  return (
+    <React.Suspense fallback={<div>Loading...</div>}>
+      <LogisticsClientContent />
+    </React.Suspense>
+  )
+}

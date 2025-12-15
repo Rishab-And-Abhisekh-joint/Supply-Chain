@@ -1,0 +1,2 @@
+# This file ensures the 'services' directory exists for backend microservices.
+# Remove this file once actual service folders are added. 

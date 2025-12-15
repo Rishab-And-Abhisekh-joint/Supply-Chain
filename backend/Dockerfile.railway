@@ -1,0 +1,47 @@
+# Multi-stage Dockerfile for Railway deployment
+# This creates a single container running all services for free tier deployment
+
+FROM node:20-alpine AS node-base
+
+# Install Python for AI services
+FROM python:3.11-slim AS python-base
+
+# Final combined image
+FROM python:3.11-slim
+
+# Install Node.js
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get install -y postgresql-client supervisor && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy all services
+COPY services/ ./services/
+
+# Install Node.js service dependencies
+RUN cd services/1-api-gateway && npm install --production
+RUN cd services/2-inventory-service && npm install --production
+RUN cd services/3-order-service && npm install --production
+RUN cd services/4-warehouse-service && npm install --production
+RUN cd services/5-delivery-service && npm install --production
+RUN cd services/6-notification-service && npm install --production
+
+# Install Python service dependencies
+RUN pip install --no-cache-dir -r services/7-forecasting-service/requirements.txt || true
+RUN pip install --no-cache-dir -r services/8-agentic-ai-service/requirements.txt || true
+
+# Copy supervisor configuration
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+echo "Starting Supply Chain Platform..."\n\
+supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+EXPOSE 3000
+
+CMD ["/app/start.sh"]

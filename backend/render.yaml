@@ -1,0 +1,274 @@
+# Render Blueprint - Infrastructure as Code
+# Deploy to Render.com with a single click
+
+databases:
+  - name: supplychain-db
+    plan: free
+    databaseName: supplychaindb
+    user: supplychainuser
+
+services:
+  # API Gateway - Main entry point
+  - type: web
+    name: api-gateway
+    plan: free
+    runtime: node
+    rootDir: services/1-api-gateway
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: INVENTORY_SERVICE_URL
+        fromService:
+          name: inventory-service
+          type: web
+          property: hostport
+      - key: ORDER_SERVICE_URL
+        fromService:
+          name: order-service
+          type: web
+          property: hostport
+      - key: WAREHOUSE_SERVICE_URL
+        fromService:
+          name: warehouse-service
+          type: web
+          property: hostport
+      - key: DELIVERY_SERVICE_URL
+        fromService:
+          name: delivery-service
+          type: web
+          property: hostport
+      - key: NOTIFICATION_SERVICE_URL
+        fromService:
+          name: notification-service
+          type: web
+          property: hostport
+      - key: FORECASTING_SERVICE_URL
+        fromService:
+          name: forecasting-service
+          type: web
+          property: hostport
+      - key: AGENTIC_AI_SERVICE_URL
+        fromService:
+          name: agentic-service
+          type: web
+          property: hostport
+      - key: FRONTEND_URL
+        sync: false
+
+  # Inventory Service
+  - type: web
+    name: inventory-service
+    plan: free
+    runtime: node
+    rootDir: services/2-inventory-service
+    buildCommand: npm install && npm run build
+    startCommand: node dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DB_HOST
+        fromDatabase:
+          name: supplychain-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: supplychain-db
+          property: port
+      - key: DB_USERNAME
+        fromDatabase:
+          name: supplychain-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: supplychain-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: supplychain-db
+          property: database
+
+  # Order Service
+  - type: web
+    name: order-service
+    plan: free
+    runtime: node
+    rootDir: services/3-order-service
+    buildCommand: npm install && npm run build
+    startCommand: node dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3002
+      - key: DB_HOST
+        fromDatabase:
+          name: supplychain-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: supplychain-db
+          property: port
+      - key: DB_USERNAME
+        fromDatabase:
+          name: supplychain-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: supplychain-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: supplychain-db
+          property: database
+      - key: INVENTORY_SERVICE_URL
+        fromService:
+          name: inventory-service
+          type: web
+          property: hostport
+
+  # Warehouse Service
+  - type: web
+    name: warehouse-service
+    plan: free
+    runtime: node
+    rootDir: services/4-warehouse-service
+    buildCommand: npm install && npm run build
+    startCommand: node dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3003
+      - key: DB_HOST
+        fromDatabase:
+          name: supplychain-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: supplychain-db
+          property: port
+      - key: DB_USERNAME
+        fromDatabase:
+          name: supplychain-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: supplychain-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: supplychain-db
+          property: database
+
+  # Delivery Service
+  - type: web
+    name: delivery-service
+    plan: free
+    runtime: node
+    rootDir: services/5-delivery-service
+    buildCommand: npm install && npm run build
+    startCommand: node dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3004
+      - key: DB_HOST
+        fromDatabase:
+          name: supplychain-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: supplychain-db
+          property: port
+      - key: DB_USERNAME
+        fromDatabase:
+          name: supplychain-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: supplychain-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: supplychain-db
+          property: database
+      - key: MAPPING_API_KEY
+        sync: false
+
+  # Notification Service
+  - type: web
+    name: notification-service
+    plan: free
+    runtime: node
+    rootDir: services/6-notification-service
+    buildCommand: npm install && npm run build
+    startCommand: node dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3005
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+
+  # Forecasting Service (Python)
+  - type: web
+    name: forecasting-service
+    plan: free
+    runtime: python
+    rootDir: services/7-forecasting-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: DB_HOST
+        fromDatabase:
+          name: supplychain-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: supplychain-db
+          property: port
+      - key: DB_USERNAME
+        fromDatabase:
+          name: supplychain-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: supplychain-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: supplychain-db
+          property: database
+
+  # Agentic AI Service (Python)
+  - type: web
+    name: agentic-service
+    plan: free
+    runtime: python
+    rootDir: services/8-agentic-ai-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8001
+      - key: GROQ_API_KEY
+        sync: false

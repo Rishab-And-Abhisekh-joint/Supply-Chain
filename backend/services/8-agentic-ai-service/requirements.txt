@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+crewai==0.30.11
+crewai-tools==0.1.7
+langchain-groq
+python-dotenv
+requests
+ortools
