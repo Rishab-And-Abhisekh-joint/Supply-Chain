@@ -1,246 +1,253 @@
-
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import InventoryChart, { type InventoryData } from "@/components/inventory-chart";
-import { AlertCircle, PackageCheck, Truck } from "lucide-react";
+import { AlertCircle, PackageCheck, Truck, RefreshCw, Loader2 } from "lucide-react";
 import LiveRoutesMap from '@/components/live-routes-map';
 import RealTimeOrders, { type Order } from '@/components/real-time-orders';
+import { Button } from "@/components/ui/button";
+import { useToast } from '@/hooks/use-toast';
+import { inventoryApi, ordersApi, warehouseApi, type Product, type Order as ApiOrder } from '@/lib/api';
 
-const initialInventoryData: InventoryData[] = [
-    { 
-        name: "Laptops", 
-        warehouses: [
-            { name: "Warehouse A", total: 800, previous: 800 },
-            { name: "Warehouse B", total: 700, previous: 700 },
-        ]
-    },
-    { 
-        name: "Monitors", 
-        warehouses: [
-            { name: "Warehouse A", total: 1200, previous: 1200 },
-            { name: "Warehouse B", total: 1000, previous: 1000 },
-        ]
-    },
-    { 
-        name: "Keyboards", 
-         warehouses: [
-            { name: "Warehouse A", total: 2500, previous: 2500 },
-            { name: "Warehouse B", total: 2000, previous: 2000 },
-        ]
-    },
-    { 
-        name: "Mice", 
-         warehouses: [
-            { name: "Warehouse A", total: 3500, previous: 3500 },
-            { name: "Warehouse B", total: 2500, previous: 2500 },
-        ]
-    },
-    { 
-        name: "Webcams", 
-        warehouses: [
-            { name: "Warehouse A", total: 1600, previous: 1600 },
-            { name: "Warehouse B", total: 1500, previous: 1500 },
-        ]
-     },
-    { 
-        name: "Headsets", 
-        warehouses: [
-            { name: "Warehouse A", total: 1400, previous: 1400 },
-            { name: "Warehouse B", total: 1400, previous: 1400 },
-        ]
-    },
-    { 
-        name: "Cables", 
-        warehouses: [
-            { name: "Warehouse A", total: 4500, previous: 4500 },
-            { name: "Warehouse B", total: 4000, previous: 4000 },
-        ]
-    },
-];
-
-const initialOrders: Order[] = [
-    { id: 'ORD789', customerName: 'Liam Johnson', customerId: 'CUST001', orderDate: '2023-10-23', expectedDate: '2023-10-28', status: 'Shipped', deliveryType: 'Truck', totalAmount: 250.00, amountPaid: 250.00, transitId: 'truck-1' },
-    { id: 'ORD790', customerName: 'Olivia Smith', customerId: 'CUST002', orderDate: '2023-10-24', expectedDate: '2023-10-29', status: 'Shipped', deliveryType: 'Truck', totalAmount: 150.00, amountPaid: 150.00, transitId: 'truck-1' },
-    { id: 'ORD791', customerName: 'Noah Williams', customerId: 'CUST003', orderDate: '2023-10-24', expectedDate: '2023-11-01', status: 'Shipped', deliveryType: 'Truck', totalAmount: 350.00, amountPaid: 350.00, transitId: 'truck-2' },
-    { id: 'ORD801', customerName: 'Emma Brown', customerId: 'CUST004', orderDate: '2023-10-22', expectedDate: '2023-11-05', status: 'Shipped', deliveryType: 'Train', totalAmount: 450.00, amountPaid: 450.00, transitId: 'train-1' },
-    { id: 'ORD905', customerName: 'Ava Jones', customerId: 'CUST005', orderDate: '2023-10-21', expectedDate: '2023-10-25', status: 'Shipped', deliveryType: 'Flight', totalAmount: 550.00, amountPaid: 550.00, transitId: 'flight-1' },
-    { id: 'ORD999', customerName: 'James Miller', customerId: 'CUST006', orderDate: '2023-10-25', expectedDate: '2023-11-02', status: 'Processing', deliveryType: 'Truck', totalAmount: 200.00, amountPaid: 50.00, transitId: null },
-    { id: 'ORD998', customerName: 'Sophia Davis', customerId: 'CUST007', orderDate: '2023-10-25', expectedDate: '2023-11-03', status: 'Processing', deliveryType: 'Train', totalAmount: 800.00, amountPaid: 200.00, transitId: null },
-];
-
-const generateNewOrder = (orderCount: number, fromLogistics: boolean = false): Order => {
-    const newId = `ORD${1000 + orderCount}`;
-    const customers = [
-        ['Lucas', 'Martinez'], ['Chloe', 'Garcia'], ['Mason', 'Rodriguez'], ['Zoe', 'Lee']
-    ];
-    const customer = fromLogistics ? ['New Logistics', 'Order'] : customers[orderCount % customers.length];
-    const customerId = fromLogistics ? 'CUST-LOG' : `CUST${String(100 + orderCount).padStart(3, '0')}`;
-    const total = fromLogistics ? 2500 + Math.floor(Math.random() * 1000) : Math.floor(Math.random() * 500) + 50;
-    const paid = fromLogistics ? total * 0.20 : Math.random() > 0.6 ? total : Math.floor(Math.random() * total);
+// Transform API products to chart format
+const transformToInventoryData = (products: Product[], warehouses: Map<string, string>): InventoryData[] => {
+  const productMap = new Map<string, { warehouses: { name: string; total: number; previous: number }[] }>();
+  
+  products.forEach(product => {
+    const warehouseName = warehouses.get(product.warehouseId) || `Warehouse ${product.warehouseId}`;
     
-    return {
-        id: newId,
-        customerName: `${customer[0]} ${customer[1]}`,
-        customerId: customerId,
-        orderDate: new Date().toISOString().split('T')[0],
-        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        status: 'Processing',
-        deliveryType: 'Truck',
-        totalAmount: total,
-        amountPaid: paid,
-        transitId: null
-    };
-}
-
-const calculateTotal = (data: InventoryData[]) => data.reduce((sum, item) => sum + item.warehouses.reduce((wSum, w) => wSum + w.total, 0), 0);
-
-function DashboardPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [anomalyCount, setAnomalyCount] = useState(3);
-  const [inventoryData, setInventoryData] = useState<InventoryData[]>(initialInventoryData);
-  const [totalInventory, setTotalInventory] = useState(calculateTotal(initialInventoryData));
-  const [previousInventory, setPreviousInventory] = useState(totalInventory);
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const orderCounter = useRef(initialOrders.length);
-
-
-  useEffect(() => {
-    // Check if redirected from logistics page with a new order
-    if (searchParams.has('newOrder')) {
-        orderCounter.current += 1;
-        const newOrder = generateNewOrder(orderCounter.current, true);
-        setOrders(prev => [newOrder, ...prev]);
-
-        // Clean up the URL
-        const newUrl = window.location.pathname;
-        window.history.replaceState({...window.history.state, as: newUrl, url: newUrl}, '', newUrl);
+    if (!productMap.has(product.category)) {
+      productMap.set(product.category, { warehouses: [] });
     }
     
-    // Anomaly simulation
-    const anomalyInterval = setInterval(() => {
-      if (Math.random() > 0.7) { 
-          setAnomalyCount(prev => prev + 1);
+    const entry = productMap.get(product.category)!;
+    const existingWarehouse = entry.warehouses.find(w => w.name === warehouseName);
+    
+    if (existingWarehouse) {
+      existingWarehouse.total += product.quantityInStock;
+      existingWarehouse.previous += product.quantityInStock; // Will be updated with real previous data
+    } else {
+      entry.warehouses.push({
+        name: warehouseName,
+        total: product.quantityInStock,
+        previous: product.quantityInStock,
+      });
+    }
+  });
+  
+  return Array.from(productMap.entries()).map(([name, data]) => ({
+    name,
+    warehouses: data.warehouses,
+  }));
+};
+
+// Transform API orders to UI format
+const transformToOrders = (apiOrders: ApiOrder[]): Order[] => {
+  return apiOrders.map(order => ({
+    id: order.orderNumber || order.id,
+    customerName: order.customerName,
+    customerId: order.customerId,
+    orderDate: order.orderDate?.split('T')[0] || new Date(order.createdAt).toISOString().split('T')[0],
+    expectedDate: order.expectedDeliveryDate?.split('T')[0] || '',
+    status: mapOrderStatus(order.status),
+    deliveryType: order.deliveryType as 'Truck' | 'Train' | 'Flight',
+    totalAmount: order.totalAmount,
+    amountPaid: order.amountPaid,
+    transitId: order.transitId || null,
+  }));
+};
+
+const mapOrderStatus = (status: string): 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' => {
+  const statusMap: Record<string, 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled'> = {
+    'Pending': 'Processing',
+    'Processing': 'Processing',
+    'Shipped': 'Shipped',
+    'Delivered': 'Delivered',
+    'Cancelled': 'Cancelled',
+  };
+  return statusMap[status] || 'Processing';
+};
+
+const calculateTotal = (data: InventoryData[]) => 
+  data.reduce((sum, item) => sum + item.warehouses.reduce((wSum, w) => wSum + w.total, 0), 0);
+
+function DashboardPageContent() {
+  const searchParams = useSearchParams();
+  const { toast } = useToast();
+  
+  // State
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [anomalyCount, setAnomalyCount] = useState(0);
+  const [inventoryData, setInventoryData] = useState<InventoryData[]>([]);
+  const [totalInventory, setTotalInventory] = useState(0);
+  const [previousInventory, setPreviousInventory] = useState(0);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [warehouseMap, setWarehouseMap] = useState<Map<string, string>>(new Map());
+  
+  const previousInventoryRef = useRef<Map<string, number>>(new Map());
+
+  // Fetch all dashboard data
+  const fetchDashboardData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    
+    try {
+      // Fetch warehouses first to get names
+      let warehouses: Map<string, string> = warehouseMap;
+      if (warehouseMap.size === 0) {
+        try {
+          const warehouseData = await warehouseApi.getAll();
+          warehouses = new Map(warehouseData.map(w => [w.id, w.name]));
+          setWarehouseMap(warehouses);
+        } catch (e) {
+          console.warn('Could not fetch warehouses, using IDs as names');
+        }
       }
-    }, 4000);
 
-    // Inventory simulation
-    const inventoryInterval = setInterval(() => {
-        setInventoryData(prevData => {
-            const newData = prevData.map(item => {
-                const forceCritical = item.name === 'Webcams' && Math.random() > 0.8;
-                
-                const updatedWarehouses = item.warehouses.map(warehouse => {
-                    let change;
-                    if (forceCritical && warehouse.name === 'Warehouse A') {
-                        change = -(warehouse.total - 900);
-                    } else {
-                        change = (Math.floor(Math.random() * 100) - 45);
-                    }
-                    const newTotal = Math.max(0, warehouse.total + change);
-                    return { ...warehouse, total: newTotal, previous: warehouse.total };
-                });
+      // Fetch products and orders in parallel
+      const [products, apiOrders] = await Promise.all([
+        inventoryApi.getAll().catch(() => []),
+        ordersApi.getAll().catch(() => []),
+      ]);
 
-                return { ...item, warehouses: updatedWarehouses };
-            });
-            
-            const currentTotal = calculateTotal(prevData);
-            const newTotalInventory = calculateTotal(newData);
-            
-            setPreviousInventory(currentTotal);
-            setTotalInventory(newTotalInventory);
-            
-            return newData;
+      // Transform and set inventory data
+      const newInventoryData = transformToInventoryData(products, warehouses);
+      
+      // Calculate previous totals for change tracking
+      const newTotal = calculateTotal(newInventoryData);
+      const prevTotal = previousInventoryRef.current.get('total') || newTotal;
+      
+      // Update previous values in inventory data
+      newInventoryData.forEach(item => {
+        item.warehouses.forEach(w => {
+          const key = `${item.name}-${w.name}`;
+          const prevValue = previousInventoryRef.current.get(key);
+          if (prevValue !== undefined) {
+            w.previous = prevValue;
+          }
+          previousInventoryRef.current.set(key, w.total);
         });
-    }, 5000);
-    
-    // Order status simulation
-    const orderStatusInterval = setInterval(() => {
-        setOrders(prevOrders => {
-            const processingOrders = prevOrders.filter(o => o.status === 'Processing');
-            if (processingOrders.length > 0) {
-                const orderToUpdateIndex = Math.floor(Math.random() * processingOrders.length);
-                const orderToUpdateId = processingOrders[orderToUpdateIndex].id;
-                
-                return prevOrders.map(order => {
-                    if (order.id === orderToUpdateId) {
-                         const availableTrucks = ['truck-1', 'truck-2', 'truck-3', 'truck-4', 'truck-5', 'truck-6'];
-                         return { 
-                             ...order, 
-                             status: "Shipped",
-                             transitId: availableTrucks[Math.floor(Math.random() * availableTrucks.length)]
-                         };
-                    }
-                    return order;
-                });
-            }
+      });
+      previousInventoryRef.current.set('total', newTotal);
 
-            const shippedOrders = prevOrders.filter(o => o.status === 'Shipped');
-            if (shippedOrders.length > 0) {
-                 if(Math.random() > 0.8) {
-                    const orderToUpdateIndex = Math.floor(Math.random() * shippedOrders.length);
-                    const orderToUpdateId = shippedOrders[orderToUpdateIndex].id;
-                    return prevOrders.map(order => order.id === orderToUpdateId ? { ...order, status: "Delivered", expectedDate: new Date().toISOString().split('T')[0] } : order)
-                }
-            }
+      setPreviousInventory(prevTotal);
+      setTotalInventory(newTotal);
+      setInventoryData(newInventoryData);
 
-            return prevOrders;
-        });
-    }, 7000);
+      // Transform and set orders
+      const transformedOrders = transformToOrders(apiOrders);
+      setOrders(transformedOrders);
 
-    // New order simulation
-    const newOrderInterval = setInterval(() => {
-        orderCounter.current += 1;
-        setOrders(prev => [generateNewOrder(orderCounter.current), ...prev]);
-    }, 15000);
-    
-    // Completed order cleanup
-    const cleanupInterval = setInterval(() => {
-        setOrders(prev => prev.filter(order => {
-            const isDelivered = order.status === 'Delivered';
-            const isPaid = order.amountPaid >= order.totalAmount;
-            return !isDelivered || !isPaid;
-        }));
-    }, 10000);
+      // Calculate anomalies (low stock items)
+      const lowStockCount = products.filter(p => p.quantityInStock <= p.reorderLevel).length;
+      setAnomalyCount(lowStockCount);
 
-    return () => {
-        clearInterval(anomalyInterval);
-        clearInterval(inventoryInterval);
-        clearInterval(orderStatusInterval);
-        clearInterval(newOrderInterval);
-        clearInterval(cleanupInterval);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      if (isRefresh) {
+        toast({ title: "Dashboard Refreshed", description: "Data updated successfully." });
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load dashboard data. Using cached data.",
+      });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [warehouseMap, toast]);
 
-  const handlePayment = (orderId: string, amount: number) => {
-    setOrders(prev => prev.map(order => {
+  // Initial load and polling
+  useEffect(() => {
+    fetchDashboardData();
+
+    // Poll for updates every 30 seconds
+    const pollInterval = setInterval(() => {
+      fetchDashboardData();
+    }, 30000);
+
+    return () => clearInterval(pollInterval);
+  }, [fetchDashboardData]);
+
+  // Handle new order from logistics page
+  useEffect(() => {
+    if (searchParams.has('newOrder')) {
+      fetchDashboardData(true);
+      // Clean up URL
+      const newUrl = window.location.pathname;
+      window.history.replaceState({...window.history.state, as: newUrl, url: newUrl}, '', newUrl);
+    }
+  }, [searchParams, fetchDashboardData]);
+
+  // Handle payment
+  const handlePayment = async (orderId: string, amount: number) => {
+    try {
+      await ordersApi.processPayment(orderId, amount);
+      
+      // Update local state
+      setOrders(prev => prev.map(order => {
         if (order.id === orderId) {
-            const newAmountPaid = Math.min(order.totalAmount, order.amountPaid + amount);
-            return { ...order, amountPaid: newAmountPaid };
+          const newAmountPaid = Math.min(order.totalAmount, order.amountPaid + amount);
+          return { ...order, amountPaid: newAmountPaid };
         }
         return order;
-    }));
+      }));
+      
+      toast({
+        title: "Payment Processed",
+        description: `Payment of $${amount.toFixed(2)} recorded for order ${orderId}.`,
+      });
+    } catch (error) {
+      console.error('Payment failed:', error);
+      toast({
+        variant: "destructive",
+        title: "Payment Failed",
+        description: "Could not process payment. Please try again.",
+      });
+    }
   };
 
+  // Calculate stats
   const inventoryChange = totalInventory - previousInventory;
   const percentageChange = previousInventory === 0 ? 0 : (inventoryChange / previousInventory) * 100;
   const changeColor = inventoryChange >= 0 ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500';
   const changePrefix = inventoryChange >= 0 ? '+' : '';
+  const shippedCount = orders.filter(o => o.status === 'Shipped').length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading dashboard...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
+      {/* Refresh Button */}
+      <div className="flex justify-end">
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => fetchDashboardData(true)}
+          disabled={refreshing}
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total Inventory
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total Inventory</CardTitle>
             <PackageCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -250,82 +257,102 @@ function DashboardPageContent() {
             </p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Deliveries In-Transit
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Deliveries In-Transit</CardTitle>
             <Truck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{orders.filter(o => o.status === 'Shipped').length}</div>
+            <div className="text-2xl font-bold">{shippedCount}</div>
             <p className="text-xs text-muted-foreground">
-              Updating in real-time
+              {orders.length} total orders
             </p>
           </CardContent>
         </Card>
+        
         <Link href="/operations">
-          <Card className="border-destructive text-destructive transition-all hover:bg-destructive/10">
-             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <Card className={`border-destructive text-destructive transition-all hover:bg-destructive/10 ${anomalyCount === 0 ? 'border-green-500 text-green-600' : ''}`}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Anomalies Detected
+                {anomalyCount > 0 ? 'Low Stock Alerts' : 'Stock Status'}
               </CardTitle>
               <AlertCircle className="h-4 w-4" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{anomalyCount}</div>
-              <p className="text-xs text-destructive/80">
-                Immediate action required
+              <p className={`text-xs ${anomalyCount > 0 ? 'text-destructive/80' : 'text-green-600/80'}`}>
+                {anomalyCount > 0 ? 'Items need reorder' : 'All stock levels healthy'}
               </p>
             </CardContent>
           </Card>
         </Link>
       </div>
+
+      {/* Charts and Map */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>Inventory Levels</CardTitle>
-            <CardDescription>Current stock levels across all products and warehouses.</CardDescription>
+            <CardDescription>Current stock levels by category across warehouses.</CardDescription>
           </CardHeader>
           <CardContent>
-            <InventoryChart data={inventoryData} view="admin" />
+            {inventoryData.length > 0 ? (
+              <InventoryChart data={inventoryData} view="admin" />
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                No inventory data available
+              </div>
+            )}
           </CardContent>
         </Card>
+        
         <Card className="lg:col-span-2">
-           <CardHeader>
+          <CardHeader>
             <CardTitle>Live Delivery Routes</CardTitle>
             <CardDescription>Real-time location of in-transit deliveries.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="relative h-[300px] w-full overflow-hidden rounded-lg">
-                <LiveRoutesMap orders={orders} selectedOrderId={selectedOrderId} />
+              <LiveRoutesMap orders={orders} selectedOrderId={selectedOrderId} />
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Orders Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Real-Time Orders</CardTitle>
-          <CardDescription>Live overview of incoming and in-transit orders.</CardDescription>
+          <CardTitle>Orders</CardTitle>
+          <CardDescription>Overview of all orders and their status.</CardDescription>
         </CardHeader>
         <CardContent>
-          <RealTimeOrders 
-            orders={orders} 
-            onOrderSelect={setSelectedOrderId} 
-            selectedOrderId={selectedOrderId}
-            onPayDue={handlePayment}
+          {orders.length > 0 ? (
+            <RealTimeOrders 
+              orders={orders} 
+              onOrderSelect={setSelectedOrderId} 
+              selectedOrderId={selectedOrderId}
+              onPayDue={handlePayment}
             />
+          ) : (
+            <div className="flex items-center justify-center h-[200px] text-muted-foreground">
+              No orders found
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 }
 
-// Wrap the component in a Suspense boundary to handle the initial render of useSearchParams
 export default function DashboardPage() {
-    return (
-        <React.Suspense fallback={<div>Loading...</div>}>
-            <DashboardPageContent />
-        </React.Suspense>
-    )
+  return (
+    <React.Suspense fallback={
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
+      <DashboardPageContent />
+    </React.Suspense>
+  );
 }

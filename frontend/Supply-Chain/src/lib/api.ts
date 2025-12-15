@@ -1,57 +1,17 @@
-/**
- * API Service Layer
- * Handles all communication with the backend API Gateway
- */
+// src/lib/api.ts
+// Complete API layer for backend integration
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-// Helper to get auth token from Firebase
-async function getAuthToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  
-  const { auth } = await import('./firebase');
-  const user = auth.currentUser;
-  if (user) {
-    return await user.getIdToken();
-  }
-  return null;
-}
+// ============================================================================
+// Types
+// ============================================================================
 
-// Generic fetch wrapper with auth
-async function fetchWithAuth<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token = await getAuthToken();
-  
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  };
-  
-  if (token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-  }
-  
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Unknown error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
-  }
-  
-  return response.json();
-}
-
-// ============== INVENTORY API ==============
 export interface Product {
   id: string;
   sku: string;
   name: string;
-  description: string;
+  description?: string;
   category: string;
   unitPrice: number;
   quantityInStock: number;
@@ -72,42 +32,21 @@ export interface CreateProductDto {
   warehouseId: string;
 }
 
-export const inventoryApi = {
-  getAll: () => fetchWithAuth<Product[]>('/api/inventory/products'),
-  getById: (id: string) => fetchWithAuth<Product>(`/api/inventory/products/${id}`),
-  create: (data: CreateProductDto) => 
-    fetchWithAuth<Product>('/api/inventory/products', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  update: (id: string, data: Partial<CreateProductDto>) =>
-    fetchWithAuth<Product>(`/api/inventory/products/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
-  adjustStock: (id: string, adjustment: { quantityChange: number; reason?: string }) =>
-    fetchWithAuth<Product>(`/api/inventory/products/stock/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(adjustment),
-    }),
-  delete: (id: string) =>
-    fetchWithAuth<void>(`/api/inventory/products/${id}`, { method: 'DELETE' }),
-};
-
-// ============== ORDERS API ==============
 export interface Order {
   id: string;
-  orderNumber: string;
+  orderNumber?: string;
   customerId: string;
   customerName: string;
-  status: 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
+  items: OrderItem[];
+  status: string;
   totalAmount: number;
   amountPaid: number;
-  orderDate: string;
-  expectedDeliveryDate: string;
-  deliveryType: 'Truck' | 'Train' | 'Flight' | 'Ship';
+  deliveryType: string;
+  origin?: string;
+  destination?: string;
+  orderDate?: string;
+  expectedDeliveryDate?: string;
   transitId?: string;
-  items: OrderItem[];
   createdAt: string;
   updatedAt: string;
 }
@@ -122,165 +61,499 @@ export interface OrderItem {
 export interface CreateOrderDto {
   customerId: string;
   customerName: string;
-  items: { productId: string; quantity: number }[];
-  deliveryType: 'Truck' | 'Train' | 'Flight' | 'Ship';
+  items: OrderItem[];
+  deliveryType: string;
+  origin?: string;
+  destination?: string;
+  totalAmount: number;
+  amountPaid: number;
 }
 
-export const ordersApi = {
-  getAll: () => fetchWithAuth<Order[]>('/api/orders'),
-  getById: (id: string) => fetchWithAuth<Order>(`/api/orders/${id}`),
-  create: (data: CreateOrderDto) =>
-    fetchWithAuth<Order>('/api/orders', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateStatus: (id: string, status: Order['status']) =>
-    fetchWithAuth<Order>(`/api/orders/${id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
-  processPayment: (id: string, amount: number) =>
-    fetchWithAuth<Order>(`/api/orders/${id}/payment`, {
-      method: 'POST',
-      body: JSON.stringify({ amount }),
-    }),
-  cancel: (id: string) =>
-    fetchWithAuth<Order>(`/api/orders/${id}/cancel`, { method: 'POST' }),
-};
-
-// ============== WAREHOUSE API ==============
 export interface Warehouse {
   id: string;
   name: string;
-  code: string;
   address: string;
   city: string;
   state: string;
   country: string;
-  zipCode: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   capacity: number;
-  currentOccupancy: number;
-  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-export const warehouseApi = {
-  getAll: () => fetchWithAuth<Warehouse[]>('/api/warehouse'),
-  getById: (id: string) => fetchWithAuth<Warehouse>(`/api/warehouse/${id}`),
-  getInventory: (id: string) => fetchWithAuth<Product[]>(`/api/warehouse/${id}/inventory`),
-};
-
-// ============== DELIVERY API ==============
 export interface Delivery {
   id: string;
   orderId: string;
-  driverId: string;
-  driverName: string;
-  vehicleType: 'Truck' | 'Van' | 'Bike';
-  vehicleId: string;
-  status: 'Assigned' | 'PickedUp' | 'InTransit' | 'Delivered' | 'Failed';
-  currentLatitude: number;
-  currentLongitude: number;
-  estimatedArrival: string;
-  actualArrival?: string;
-  route: { lat: number; lng: number }[];
+  driverName?: string;
+  vehicleType?: string;
+  status: string;
+  currentLatitude?: number;
+  currentLongitude?: number;
+  estimatedArrival?: string;
+  route?: { lat: number; lng: number }[];
   createdAt: string;
   updatedAt: string;
 }
 
-export const deliveryApi = {
-  getAll: () => fetchWithAuth<Delivery[]>('/api/delivery'),
-  getById: (id: string) => fetchWithAuth<Delivery>(`/api/delivery/${id}`),
-  getByOrder: (orderId: string) => fetchWithAuth<Delivery>(`/api/delivery/order/${orderId}`),
-  getActiveRoutes: () => fetchWithAuth<Delivery[]>('/api/delivery/routes/active'),
-  updateLocation: (id: string, lat: number, lng: number) =>
-    fetchWithAuth<Delivery>(`/api/delivery/${id}/location`, {
-      method: 'PATCH',
-      body: JSON.stringify({ latitude: lat, longitude: lng }),
-    }),
-};
-
-// ============== FORECASTING API ==============
-export interface ForecastRequest {
-  productId: string;
-  historicalMonths: number;
-  forecastHorizon: number;
+export interface ForecastPrediction {
+  month: string;
+  predictedDemand: number;
+  lowerBound: number;
+  upperBound: number;
 }
 
 export interface ForecastResult {
   productId: string;
-  productName: string;
-  predictions: { month: string; predictedDemand: number; confidence: number }[];
+  predictions: ForecastPrediction[];
+  accuracy: number;
   trend: 'increasing' | 'decreasing' | 'stable';
   seasonality: boolean;
   insights: string[];
 }
 
+// ============================================================================
+// API Error Handler
+// ============================================================================
+
+class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const errorBody = await response.text();
+    let message = `API Error: ${response.status}`;
+    try {
+      const parsed = JSON.parse(errorBody);
+      message = parsed.message || parsed.error || message;
+    } catch {
+      message = errorBody || message;
+    }
+    throw new ApiError(response.status, message);
+  }
+  
+  const text = await response.text();
+  if (!text) return {} as T;
+  return JSON.parse(text);
+}
+
+// ============================================================================
+// Inventory API
+// ============================================================================
+
+export const inventoryApi = {
+  async getAll(): Promise<Product[]> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Product[]>(response);
+  },
+
+  async getById(id: string): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/${id}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Product>(response);
+  },
+
+  async getBySku(sku: string): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/sku/${sku}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Product>(response);
+  },
+
+  async getByWarehouse(warehouseId: string): Promise<Product[]> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/warehouse/${warehouseId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Product[]>(response);
+  },
+
+  async getLowStock(): Promise<Product[]> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/low-stock`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Product[]>(response);
+  },
+
+  async create(product: CreateProductDto): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product),
+    });
+    return handleResponse<Product>(response);
+  },
+
+  async update(id: string, product: Partial<CreateProductDto>): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product),
+    });
+    return handleResponse<Product>(response);
+  },
+
+  async updateStock(id: string, quantity: number): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/${id}/stock`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quantity }),
+    });
+    return handleResponse<Product>(response);
+  },
+
+  async delete(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/inventory/products/${id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await handleResponse<void>(response);
+  },
+};
+
+// ============================================================================
+// Orders API
+// ============================================================================
+
+export const ordersApi = {
+  async getAll(): Promise<Order[]> {
+    const response = await fetch(`${API_BASE_URL}/api/orders`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Order[]>(response);
+  },
+
+  async getById(id: string): Promise<Order> {
+    const response = await fetch(`${API_BASE_URL}/api/orders/${id}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Order>(response);
+  },
+
+  async getByCustomer(customerId: string): Promise<Order[]> {
+    const response = await fetch(`${API_BASE_URL}/api/orders/customer/${customerId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Order[]>(response);
+  },
+
+  async getByStatus(status: string): Promise<Order[]> {
+    const response = await fetch(`${API_BASE_URL}/api/orders/status/${status}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Order[]>(response);
+  },
+
+  async create(order: CreateOrderDto): Promise<Order> {
+    const response = await fetch(`${API_BASE_URL}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order),
+    });
+    return handleResponse<Order>(response);
+  },
+
+  async updateStatus(id: string, status: string): Promise<Order> {
+    const response = await fetch(`${API_BASE_URL}/api/orders/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    return handleResponse<Order>(response);
+  },
+
+  async processPayment(id: string, amount: number): Promise<Order> {
+    const response = await fetch(`${API_BASE_URL}/api/orders/${id}/payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount }),
+    });
+    return handleResponse<Order>(response);
+  },
+
+  async cancel(id: string): Promise<Order> {
+    const response = await fetch(`${API_BASE_URL}/api/orders/${id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Order>(response);
+  },
+};
+
+// ============================================================================
+// Warehouse API
+// ============================================================================
+
+export const warehouseApi = {
+  async getAll(): Promise<Warehouse[]> {
+    const response = await fetch(`${API_BASE_URL}/api/warehouse`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Warehouse[]>(response);
+  },
+
+  async getById(id: string): Promise<Warehouse> {
+    const response = await fetch(`${API_BASE_URL}/api/warehouse/${id}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Warehouse>(response);
+  },
+
+  async create(warehouse: Omit<Warehouse, 'id' | 'createdAt' | 'updatedAt'>): Promise<Warehouse> {
+    const response = await fetch(`${API_BASE_URL}/api/warehouse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(warehouse),
+    });
+    return handleResponse<Warehouse>(response);
+  },
+
+  async update(id: string, warehouse: Partial<Warehouse>): Promise<Warehouse> {
+    const response = await fetch(`${API_BASE_URL}/api/warehouse/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(warehouse),
+    });
+    return handleResponse<Warehouse>(response);
+  },
+
+  async delete(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/warehouse/${id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await handleResponse<void>(response);
+  },
+};
+
+// ============================================================================
+// Delivery API
+// ============================================================================
+
+export const deliveryApi = {
+  async getAll(): Promise<Delivery[]> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Delivery[]>(response);
+  },
+
+  async getById(id: string): Promise<Delivery> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery/${id}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Delivery>(response);
+  },
+
+  async getByOrder(orderId: string): Promise<Delivery> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery/order/${orderId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Delivery>(response);
+  },
+
+  async getActiveRoutes(): Promise<Delivery[]> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery/active`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<Delivery[]>(response);
+  },
+
+  async updateLocation(id: string, lat: number, lng: number): Promise<Delivery> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery/${id}/location`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latitude: lat, longitude: lng }),
+    });
+    return handleResponse<Delivery>(response);
+  },
+
+  async updateStatus(id: string, status: string): Promise<Delivery> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    return handleResponse<Delivery>(response);
+  },
+
+  async create(delivery: Partial<Delivery>): Promise<Delivery> {
+    const response = await fetch(`${API_BASE_URL}/api/delivery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(delivery),
+    });
+    return handleResponse<Delivery>(response);
+  },
+};
+
+// ============================================================================
+// Forecast API
+// ============================================================================
+
 export const forecastApi = {
-  predict: (data: ForecastRequest) =>
-    fetchWithAuth<ForecastResult>('/api/forecast/predict', {
+  async predict(params: {
+    productId: string;
+    productName: string;
+    historicalMonths: number;
+    forecastHorizon: number;
+  }): Promise<ForecastResult> {
+    const response = await fetch(`${API_BASE_URL}/api/forecast/predict`, {
       method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  getHistorical: (productId: string) =>
-    fetchWithAuth<{ month: string; demand: number }[]>(`/api/forecast/historical/${productId}`),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return handleResponse<ForecastResult>(response);
+  },
+
+  async getHistorical(productId: string): Promise<{ month: string; demand: number }[]> {
+    const response = await fetch(`${API_BASE_URL}/api/forecast/historical/${productId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<{ month: string; demand: number }[]>(response);
+  },
 };
 
-// ============== AGENTIC AI API ==============
-export interface AgentQuery {
-  query: string;
-  context?: Record<string, unknown>;
-}
+// ============================================================================
+// Logistics API
+// ============================================================================
 
-export interface AgentResponse {
-  response: string;
-  actions: { type: string; description: string; status: string }[];
-  sources: string[];
-}
-
-export const agenticApi = {
-  query: (data: AgentQuery) =>
-    fetchWithAuth<AgentResponse>('/api/agentic/query', {
+export const logisticsApi = {
+  async optimizeRoute(origin: string, destination: string): Promise<{
+    optimalRouteSummary: string;
+    estimatedTime: string;
+    estimatedDistance: string;
+    reasoning: string;
+    routeCoordinates?: { lat: number; lng: number }[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/api/logistics/optimize`, {
       method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  getStatus: () => fetchWithAuth<{ status: string; activeAgents: number }>('/api/agentic/status'),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin, destination }),
+    });
+    return handleResponse(response);
+  },
+
+  async getLocations(): Promise<{ name: string; address: string; coordinates?: { lat: number; lng: number } }[]> {
+    const response = await fetch(`${API_BASE_URL}/api/logistics/locations`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse(response);
+  },
 };
 
-// ============== NOTIFICATIONS API ==============
-export interface Notification {
-  id: string;
-  userId: string;
-  type: 'info' | 'warning' | 'error' | 'success';
-  title: string;
-  message: string;
-  read: boolean;
-  createdAt: string;
-}
+// ============================================================================
+// Events/Notifications API
+// ============================================================================
+
+export const eventsApi = {
+  async getStream(): Promise<{ id: string; type: string; message: string; timestamp: string }[]> {
+    const response = await fetch(`${API_BASE_URL}/api/events/stream`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse(response);
+  },
+
+  async analyzeAnomalies(eventStream: string): Promise<{
+    anomalies: {
+      summary: string;
+      suggestedAction: string;
+      severity?: 'low' | 'medium' | 'high';
+      category?: string;
+    }[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/api/agentic/analyze-events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventStream }),
+    });
+    return handleResponse(response);
+  },
+};
+
+// ============================================================================
+// Notifications API
+// ============================================================================
 
 export const notificationsApi = {
-  getAll: () => fetchWithAuth<Notification[]>('/api/notifications'),
-  markAsRead: (id: string) =>
-    fetchWithAuth<Notification>(`/api/notifications/${id}/read`, { method: 'PATCH' }),
-  markAllAsRead: () =>
-    fetchWithAuth<void>('/api/notifications/read-all', { method: 'POST' }),
+  async send(params: {
+    to: string;
+    subject: string;
+    body: string;
+    type: 'email' | 'sms';
+  }): Promise<{ success: boolean; messageId?: string }> {
+    const response = await fetch(`${API_BASE_URL}/api/notifications/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return handleResponse(response);
+  },
+
+  async getHistory(): Promise<{
+    id: string;
+    type: string;
+    recipient: string;
+    subject: string;
+    sentAt: string;
+    status: string;
+  }[]> {
+    const response = await fetch(`${API_BASE_URL}/api/notifications/history`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse(response);
+  },
 };
 
-// ============== HEALTH CHECK ==============
+// ============================================================================
+// Health Check
+// ============================================================================
+
 export const healthApi = {
-  check: () => fetch(`${API_BASE_URL}/health`).then(r => r.json()),
+  async check(): Promise<{ status: string; services: Record<string, string> }> {
+    const response = await fetch(`${API_BASE_URL}/api/health`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse(response);
+  },
 };
 
+// Export all APIs as default
 export default {
   inventory: inventoryApi,
   orders: ordersApi,
   warehouse: warehouseApi,
   delivery: deliveryApi,
   forecast: forecastApi,
-  agentic: agenticApi,
+  logistics: logisticsApi,
+  events: eventsApi,
   notifications: notificationsApi,
   health: healthApi,
 };
