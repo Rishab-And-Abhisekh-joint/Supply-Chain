@@ -9,10 +9,14 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 async function getAuthToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   
-  const { auth } = await import('./firebase');
-  const user = auth.currentUser;
-  if (user) {
-    return await user.getIdToken();
+  try {
+    // FIXED: Correct import path
+    const { auth } = await import('@/lib/firebase');
+    if (auth && auth.currentUser) {
+      return await auth.currentUser.getIdToken();
+    }
+  } catch (error) {
+    console.warn('Could not get auth token:', error);
   }
   return null;
 }

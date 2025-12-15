@@ -1,5 +1,8 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+// src/lib/firebase.ts
+// Fixed Firebase initialization with SSR protection
+
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBlxWnsCc4D2IPdGkLK1980sBGV3Ll9iRg",
@@ -10,18 +13,43 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:348749817829:web:14cc068ab6dea01527310c"
 };
 
-// Initialize Firebase
-let app;
-if (!getApps().length) {
+// Initialize Firebase - with proper singleton pattern
+function initializeFirebase(): FirebaseApp {
+  if (getApps().length > 0) {
+    return getApp();
+  }
+  return initializeApp(firebaseConfig);
+}
+
+// Only initialize on client side
+let app: FirebaseApp | undefined;
+let auth: Auth | undefined;
+
+if (typeof window !== 'undefined') {
   try {
-    app = initializeApp(firebaseConfig);
+    app = initializeFirebase();
+    auth = getAuth(app);
   } catch (error) {
     console.error("Firebase initialization error:", error);
   }
-} else {
-  app = getApp();
 }
 
-const auth = getAuth(app);
+// For server-side, create a getter that will work when called on client
+function getFirebaseAuth(): Auth {
+  if (typeof window === 'undefined') {
+    throw new Error('Firebase Auth is only available on the client side');
+  }
+  
+  if (!auth) {
+    app = initializeFirebase();
+    auth = getAuth(app);
+  }
+  
+  return auth;
+}
 
-export { app, auth };
+// Export auth as a getter to ensure it's always initialized when accessed
+export { app, auth, getFirebaseAuth };
+
+// Default export for compatibility
+export default { app, auth, getFirebaseAuth };

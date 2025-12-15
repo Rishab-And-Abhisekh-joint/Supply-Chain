@@ -21,6 +21,7 @@ app.use(express.json());
 // --- Helper function to ensure URL has https:// prefix ---
 const ensureHttps = (url) => {
   if (!url) return null;
+  url = url.trim();
   // If URL already has a protocol, return as-is
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
@@ -41,32 +42,51 @@ const services = {
 };
 
 // Log service URLs on startup for debugging
-console.log('Configured Service URLs:');
+console.log('\n====== SERVICE URL CONFIGURATION ======');
 Object.entries(services).forEach(([name, url]) => {
-  console.log(`  ${name}: ${url || 'NOT SET'}`);
+  console.log(`  ${name.padEnd(15)}: ${url || '❌ NOT SET'}`);
 });
+console.log('========================================\n');
 
 // --- Proxy factory with timeout and error handling ---
-const createProxy = (target, pathRewriteFn) => {
+const createProxy = (serviceName, target, pathRewriteFn) => {
+  if (!target) {
+    // Return a middleware that returns 503 if service URL not configured
+    return (req, res) => {
+      console.error(`[ERROR] ${serviceName} service URL not configured`);
+      res.status(503).json({
+        error: 'Service not configured',
+        message: `The ${serviceName} service URL is not set in environment variables`,
+      });
+    };
+  }
+
   return createProxyMiddleware({
     target,
     changeOrigin: true,
     pathRewrite: pathRewriteFn,
-    timeout: 60000,        // 60 seconds for cold starts
-    proxyTimeout: 60000,
+    timeout: 120000,        // 120 seconds for cold starts
+    proxyTimeout: 120000,
+    secure: true,
     onProxyReq: (proxyReq, req, res) => {
-      console.log(`[PROXY] ${req.method} ${req.originalUrl} → ${target}${proxyReq.path}`);
+      const targetPath = proxyReq.path;
+      console.log(`[PROXY →] ${req.method} ${req.originalUrl} → ${target}${targetPath}`);
     },
     onProxyRes: (proxyRes, req, res) => {
-      console.log(`[PROXY] Response: ${proxyRes.statusCode} for ${req.originalUrl}`);
+      console.log(`[PROXY ←] ${proxyRes.statusCode} ${req.method} ${req.originalUrl}`);
     },
     onError: (err, req, res) => {
-      console.error(`[PROXY ERROR] ${req.originalUrl}:`, err.message);
+      console.error(`[PROXY ERROR] ${serviceName}: ${err.message}`);
+      console.error(`[PROXY ERROR] Target: ${target}`);
+      console.error(`[PROXY ERROR] Original URL: ${req.originalUrl}`);
+      
       if (!res.headersSent) {
         res.status(502).json({ 
-          error: 'Service temporarily unavailable', 
-          message: 'The backend service may be starting up. Please try again in a moment.',
-          path: req.originalUrl
+          error: 'Bad Gateway', 
+          message: `Could not connect to ${serviceName} service. It may be starting up (cold start can take 30-60 seconds on free tier).`,
+          service: serviceName,
+          target: target,
+          originalError: err.message
         });
       }
     }
@@ -79,8 +99,25 @@ app.get('/health', (req, res) => {
     status: 'API Gateway running', 
     timestamp: new Date().toISOString(),
     services: Object.fromEntries(
-      Object.entries(services).map(([k, v]) => [k, v ? 'configured' : 'not set'])
+      Object.entries(services).map(([k, v]) => [k, v ? '✅ ' + v : '❌ not set'])
     )
+  });
+});
+
+// --- Debug endpoint to check service URLs ---
+app.get('/debug/services', (req, res) => {
+  res.json({
+    message: 'Service URL configuration',
+    raw_env: {
+      INVENTORY_SERVICE_URL: process.env.INVENTORY_SERVICE_URL || 'not set',
+      ORDER_SERVICE_URL: process.env.ORDER_SERVICE_URL || 'not set',
+      WAREHOUSE_SERVICE_URL: process.env.WAREHOUSE_SERVICE_URL || 'not set',
+      DELIVERY_SERVICE_URL: process.env.DELIVERY_SERVICE_URL || 'not set',
+      NOTIFICATION_SERVICE_URL: process.env.NOTIFICATION_SERVICE_URL || 'not set',
+      FORECASTING_SERVICE_URL: process.env.FORECASTING_SERVICE_URL || 'not set',
+      AGENTIC_AI_SERVICE_URL: process.env.AGENTIC_AI_SERVICE_URL || 'not set',
+    },
+    processed: services
   });
 });
 
@@ -90,102 +127,79 @@ app.get('/health', (req, res) => {
 // Controller uses @Controller('products'), so:
 // /api/inventory/products → /products
 // /api/inventory/products/123 → /products/123
-if (services.inventory) {
-  app.use('/api/inventory', createProxy(services.inventory, (path) => {
-    // path is what comes after /api/inventory
-    // e.g., /api/inventory/products → path = /products
-    const newPath = path || '/';
-    console.log(`[PATH] inventory: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/inventory', createProxy('inventory', services.inventory, (path) => {
+  // path comes in as what's after /api/inventory was matched
+  // e.g., /api/inventory/products → path = /products
+  const newPath = path || '/';
+  console.log(`  [PATH REWRITE] inventory: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // Orders: /api/orders/* → order-service/orders/*
 // Controller uses @Controller('orders'), so:
 // /api/orders → /orders
 // /api/orders/123 → /orders/123
-if (services.order) {
-  app.use('/api/orders', createProxy(services.order, (path) => {
-    // path is what comes after /api/orders
-    // e.g., /api/orders → path = '' or '/'
-    // e.g., /api/orders/123 → path = /123
-    const newPath = '/orders' + (path || '');
-    console.log(`[PATH] orders: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/orders', createProxy('order', services.order, (path) => {
+  // path comes in as what's after /api/orders
+  // e.g., /api/orders → path = '' or '/'
+  // e.g., /api/orders/123 → path = /123
+  const newPath = '/orders' + (path === '/' ? '' : path);
+  console.log(`  [PATH REWRITE] orders: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // Warehouse: /api/warehouse/* → warehouse-service/warehouse/*
 // Controller uses @Controller('warehouse')
-if (services.warehouse) {
-  app.use('/api/warehouse', createProxy(services.warehouse, (path) => {
-    const newPath = '/warehouse' + (path || '');
-    console.log(`[PATH] warehouse: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/warehouse', createProxy('warehouse', services.warehouse, (path) => {
+  const newPath = '/warehouse' + (path === '/' ? '' : path);
+  console.log(`  [PATH REWRITE] warehouse: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // Delivery: /api/delivery/* → delivery-service/delivery/*
 // Controller uses @Controller('delivery')
-if (services.delivery) {
-  app.use('/api/delivery', createProxy(services.delivery, (path) => {
-    const newPath = '/delivery' + (path || '');
-    console.log(`[PATH] delivery: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/delivery', createProxy('delivery', services.delivery, (path) => {
+  const newPath = '/delivery' + (path === '/' ? '' : path);
+  console.log(`  [PATH REWRITE] delivery: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // Notifications: /api/notifications/* → notification-service/notifications/*
 // Controller uses @Controller('notifications')
-if (services.notification) {
-  app.use('/api/notifications', createProxy(services.notification, (path) => {
-    const newPath = '/notifications' + (path || '');
-    console.log(`[PATH] notifications: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/notifications', createProxy('notification', services.notification, (path) => {
+  const newPath = '/notifications' + (path === '/' ? '' : path);
+  console.log(`  [PATH REWRITE] notifications: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // Forecasting: /api/forecast/* → forecasting-service/api/*
 // FastAPI uses prefix="/api"
-if (services.forecasting) {
-  app.use('/api/forecast', createProxy(services.forecasting, (path) => {
-    const newPath = '/api' + (path || '');
-    console.log(`[PATH] forecasting: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/forecast', createProxy('forecasting', services.forecasting, (path) => {
+  const newPath = '/api' + (path === '/' ? '' : path);
+  console.log(`  [PATH REWRITE] forecasting: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // Agentic AI: /api/agentic/* → agentic-service/api/v1/*
 // FastAPI uses prefix="/api/v1"
-if (services.agentic) {
-  app.use('/api/agentic', createProxy(services.agentic, (path) => {
-    const newPath = '/api/v1' + (path || '');
-    console.log(`[PATH] agentic: ${path} → ${newPath}`);
-    return newPath;
-  }));
-}
+app.use('/api/agentic', createProxy('agentic', services.agentic, (path) => {
+  const newPath = '/api/v1' + (path === '/' ? '' : path);
+  console.log(`  [PATH REWRITE] agentic: "${path}" → "${newPath}"`);
+  return newPath;
+}));
 
 // --- 404 Handler ---
 app.use((req, res) => {
   res.status(404).json({ 
     message: 'Route not found on API Gateway',
     path: req.originalUrl,
-    availableRoutes: [
-      '/health',
-      '/api/inventory/*',
-      '/api/orders/*',
-      '/api/warehouse/*',
-      '/api/delivery/*',
-      '/api/notifications/*',
-      '/api/forecast/*',
-      '/api/agentic/*'
-    ]
+    hint: 'Available routes: /health, /debug/services, /api/inventory/*, /api/orders/*, /api/warehouse/*, /api/delivery/*, /api/notifications/*, /api/forecast/*, /api/agentic/*'
   });
 });
 
 // --- Error Handler ---
 app.use((err, req, res, next) => {
-  console.error('[ERROR]', err);
+  console.error('[UNHANDLED ERROR]', err);
   res.status(500).json({ 
     error: 'Internal server error',
     message: err.message 
@@ -195,7 +209,10 @@ app.use((err, req, res, next) => {
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\n========================================`);
-  console.log(`API Gateway running on port ${PORT}`);
-  console.log(`========================================\n`);
+  console.log(`\n╔════════════════════════════════════════╗`);
+  console.log(`║  API Gateway running on port ${PORT}       ║`);
+  console.log(`╚════════════════════════════════════════╝\n`);
+  console.log(`Test endpoints:`);
+  console.log(`  GET /health          - Check gateway status`);
+  console.log(`  GET /debug/services  - Check service URLs\n`);
 });
