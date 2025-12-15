@@ -2,118 +2,112 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const proxy = require('express-http-proxy');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
-// Initialize Express app
 const app = express();
 
 // --- CORS Configuration ---
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    // Allow Vercel URLs
-    if (origin && origin.includes('.vercel.app')) {
-      return callback(null, true);
-    }
-    
-    // Allow localhost
-    if (origin && origin.includes('localhost')) {
-      return callback(null, true);
-    }
-    
-    // Allow all in production for now
-    callback(null, true);
-  },
+app.use(cors({
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-};
-
-// --- Middleware ---
-app.use(cors(corsOptions));
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(morgan('dev'));
 app.use(express.json());
 
-// --- Service URLs from Environment Variables ---
-const inventoryServiceUrl = process.env.INVENTORY_SERVICE_URL;
-const orderServiceUrl = process.env.ORDER_SERVICE_URL;
-const warehouseServiceUrl = process.env.WAREHOUSE_SERVICE_URL;
-const deliveryServiceUrl = process.env.DELIVERY_SERVICE_URL;
-const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL;
-const forecastingServiceUrl = process.env.FORECASTING_SERVICE_URL;
-const agenticServiceUrl = process.env.AGENTIC_AI_SERVICE_URL;
+// --- Service URLs ---
+const services = {
+  inventory: process.env.INVENTORY_SERVICE_URL,
+  order: process.env.ORDER_SERVICE_URL,
+  warehouse: process.env.WAREHOUSE_SERVICE_URL,
+  delivery: process.env.DELIVERY_SERVICE_URL,
+  notification: process.env.NOTIFICATION_SERVICE_URL,
+  forecasting: process.env.FORECASTING_SERVICE_URL,
+  agentic: process.env.AGENTIC_AI_SERVICE_URL,
+};
 
-// --- Health Check Route ---
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'API Gateway is up and running' });
+// --- Proxy options with longer timeout for Render cold starts ---
+const createProxy = (target, pathRewrite) => createProxyMiddleware({
+  target,
+  changeOrigin: true,
+  pathRewrite,
+  timeout: 60000, // 60 seconds for Render cold starts
+  proxyTimeout: 60000,
+  onError: (err, req, res) => {
+    console.error(`Proxy error for ${req.path}:`, err.message);
+    res.status(502).json({ 
+      error: 'Service temporarily unavailable', 
+      message: 'Please try again in a moment'
+    });
+  }
 });
 
-// --- Service Routes (NO AUTH - for testing) ---
-if (inventoryServiceUrl) {
-  app.use('/api/inventory', proxy(inventoryServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// --- Health Check ---
+app.get('/health', (req, res) => {
+  res.json({ status: 'API Gateway running', services });
+});
+
+// --- Service Routes ---
+// Inventory: /api/inventory/products -> inventory-service/products
+if (services.inventory) {
+  app.use('/api/inventory', createProxy(services.inventory, {
+    '^/api/inventory': ''  // Remove /api/inventory prefix
   }));
 }
 
-if (orderServiceUrl) {
-  app.use('/api/orders', proxy(orderServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// Orders: /api/orders -> order-service/orders
+if (services.order) {
+  app.use('/api/orders', createProxy(services.order, {
+    '^/api/orders': '/orders'  // /api/orders -> /orders
   }));
 }
 
-if (warehouseServiceUrl) {
-  app.use('/api/warehouse', proxy(warehouseServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// Warehouse: /api/warehouse -> warehouse-service/warehouse
+if (services.warehouse) {
+  app.use('/api/warehouse', createProxy(services.warehouse, {
+    '^/api/warehouse': '/warehouse'  // /api/warehouse -> /warehouse
   }));
 }
 
-if (deliveryServiceUrl) {
-  app.use('/api/delivery', proxy(deliveryServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// Delivery: /api/delivery -> delivery-service/delivery
+if (services.delivery) {
+  app.use('/api/delivery', createProxy(services.delivery, {
+    '^/api/delivery': '/delivery'
   }));
 }
 
-if (notificationServiceUrl) {
-  app.use('/api/notifications', proxy(notificationServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// Notifications
+if (services.notification) {
+  app.use('/api/notifications', createProxy(services.notification, {
+    '^/api/notifications': '/notifications'
   }));
 }
 
-if (forecastingServiceUrl) {
-  app.use('/api/forecast', proxy(forecastingServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// Forecasting
+if (services.forecasting) {
+  app.use('/api/forecast', createProxy(services.forecasting, {
+    '^/api/forecast': '/api'
   }));
 }
 
-if (agenticServiceUrl) {
-  app.use('/api/agentic', proxy(agenticServiceUrl, {
-    proxyReqPathResolver: (req) => req.url
+// Agentic AI
+if (services.agentic) {
+  app.use('/api/agentic', createProxy(services.agentic, {
+    '^/api/agentic': '/api/v1'
   }));
 }
 
 // --- 404 Handler ---
-app.use((req, res, next) => {
-  res.status(404).json({ message: 'Route not found on API Gateway' });
-});
-
-// --- Global Error Handler ---
-app.use((err, req, res, next) => {
-  console.error('Gateway Error:', err.message);
-  res.status(500).json({ message: 'An internal server error occurred' });
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
 });
 
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`API Gateway running on port ${PORT}`);
-  console.log('Service URLs:');
-  console.log('  Inventory:', inventoryServiceUrl);
-  console.log('  Orders:', orderServiceUrl);
-  console.log('  Warehouse:', warehouseServiceUrl);
-  console.log('  Delivery:', deliveryServiceUrl);
+  console.log('Services:', services);
 });
