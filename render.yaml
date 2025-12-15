@@ -22,6 +22,8 @@ services:
     startCommand: node src/server.js
     healthCheckPath: /health
     envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: NODE_ENV
         value: production
       - key: PORT
@@ -236,6 +238,8 @@ services:
     buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: NODE_ENV
         value: production
       - key: PORT
