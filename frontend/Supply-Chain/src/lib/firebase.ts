@@ -1,55 +1,46 @@
 // src/lib/firebase.ts
-// Fixed Firebase initialization with SSR protection
+// FIXED: Proper Firebase v9+ modular SDK initialization for Next.js
 
-import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
+import { getAuth, Auth } from 'firebase/auth';
+import { getFirestore, Firestore } from 'firebase/firestore';
 
+// Firebase configuration from environment variables
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBlxWnsCc4D2IPdGkLK1980sBGV3Ll9iRg",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "supplychainai-cdqvg.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "supplychainai-cdqvg",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "supplychainai-cdqvg.appspot.com",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "348749817829",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:348749817829:web:14cc068ab6dea01527310c"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase - with proper singleton pattern
-function initializeFirebase(): FirebaseApp {
-  if (getApps().length > 0) {
-    return getApp();
-  }
-  return initializeApp(firebaseConfig);
-}
+// Initialize Firebase - prevent multiple initialization
+let app: FirebaseApp;
+let auth: Auth;
+let db: Firestore;
 
-// Only initialize on client side
-let app: FirebaseApp | undefined;
-let auth: Auth | undefined;
-
+// Check if running on client side
 if (typeof window !== 'undefined') {
-  try {
-    app = initializeFirebase();
-    auth = getAuth(app);
-  } catch (error) {
-    console.error("Firebase initialization error:", error);
-  }
-}
-
-// For server-side, create a getter that will work when called on client
-function getFirebaseAuth(): Auth {
-  if (typeof window === 'undefined') {
-    throw new Error('Firebase Auth is only available on the client side');
+  // Initialize only once
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApp();
   }
   
-  if (!auth) {
-    app = initializeFirebase();
-    auth = getAuth(app);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} else {
+  // Server-side: still initialize but auth operations won't work
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApp();
   }
-  
-  return auth;
+  auth = getAuth(app);
+  db = getFirestore(app);
 }
 
-// Export auth as a getter to ensure it's always initialized when accessed
-export { app, auth, getFirebaseAuth };
-
-// Default export for compatibility
-export default { app, auth, getFirebaseAuth };
+export { app, auth, db };
+export default app;

@@ -1,88 +1,105 @@
+// src/contexts/AuthContext.tsx
+// FIXED: Proper Firebase v9+ Auth context for Next.js App Router
 
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { User } from 'firebase/auth';
-import { onAuthStateChanged, getRedirectResult } from 'firebase/auth';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { 
+  User,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  sendPasswordResetEmail,
+  UserCredential
+} from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
 
+// Define the shape of the auth context
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  signIn: (email: string, password: string) => Promise<UserCredential>;
+  signUp: (email: string, password: string) => Promise<UserCredential>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  getIdToken: () => Promise<string | null>;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-});
+// Create the context with a default value
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Provider component
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const { toast } = useToast();
-  const router = useRouter();
-
 
   useEffect(() => {
-    console.log("AuthProvider: useEffect for auth processing is running.");
+    // Subscribe to auth state changes
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setLoading(false);
+    });
 
-    const processAuth = async () => {
-      try {
-        console.log("AuthProvider: Checking for redirect result...");
-        const result = await getRedirectResult(auth);
-        if (result) {
-          console.log("AuthProvider: Google redirect result found.", result.user);
-          toast({ title: "Logged in successfully!" });
-           // The router logic to redirect is in AppLayout to avoid context/router conflicts
-        } else {
-          console.log("AuthProvider: No redirect result.");
-        }
-      } catch (error: any) {
-        console.error("AuthProvider: Error during getRedirectResult:", error);
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: error.message || "Could not complete sign-in. Please try again.",
-        });
-      }
-
-      console.log("AuthProvider: Setting up onAuthStateChanged listener.");
-      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-        console.log("AuthProvider: onAuthStateChanged triggered. User:", currentUser);
-        setUser(currentUser);
-        if (loading) {
-            console.log("AuthProvider: Auth loading finished.");
-            setLoading(false);
-        }
-      });
-      
-      return unsubscribe;
-    };
-
-    const unsubscribePromise = processAuth();
-
-    return () => {
-      console.log("AuthProvider: Cleaning up auth useEffect.");
-      unsubscribePromise.then(unsubscribe => {
-        if (unsubscribe) {
-          console.log("AuthProvider: Unsubscribing from onAuthStateChanged.");
-          unsubscribe();
-        }
-      });
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, []);
 
+  // Sign in with email and password
+  const signIn = async (email: string, password: string): Promise<UserCredential> => {
+    return signInWithEmailAndPassword(auth, email, password);
+  };
+
+  // Sign up with email and password
+  const signUp = async (email: string, password: string): Promise<UserCredential> => {
+    return createUserWithEmailAndPassword(auth, email, password);
+  };
+
+  // Sign out
+  const signOut = async (): Promise<void> => {
+    return firebaseSignOut(auth);
+  };
+
+  // Reset password
+  const resetPassword = async (email: string): Promise<void> => {
+    return sendPasswordResetEmail(auth, email);
+  };
+
+  // Get ID token for API authentication
+  const getIdToken = async (): Promise<string | null> => {
+    if (!user) return null;
+    try {
+      return await user.getIdToken();
+    } catch (error) {
+      console.error('Error getting ID token:', error);
+      return null;
+    }
+  };
+
+  const value: AuthContextType = {
+    user,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    resetPassword,
+    getIdToken,
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
+// Custom hook to use the auth context
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+
+export default AuthContext;
