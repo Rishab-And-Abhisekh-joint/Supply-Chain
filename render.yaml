@@ -3,7 +3,7 @@
 
 databases:
   - name: supplychain-db
-    plan: free
+    plan: basic-256mb
     databaseName: supplychaindb
     user: supplychainuser
     region: oregon
@@ -22,6 +22,8 @@ services:
     startCommand: node src/server.js
     healthCheckPath: /health
     envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: NODE_ENV
         value: production
       - key: PORT
@@ -73,7 +75,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/2-inventory-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -110,7 +112,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/3-order-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -152,7 +154,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/4-warehouse-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -194,7 +196,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/5-delivery-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -233,9 +235,11 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/6-notification-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: NODE_ENV
         value: production
       - key: PORT

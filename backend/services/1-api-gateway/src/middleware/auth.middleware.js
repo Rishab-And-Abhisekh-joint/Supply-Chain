@@ -1,22 +1,30 @@
 const admin = require('firebase-admin');
 
-// IMPORTANT: You must provide your service account key to the gateway.
-// In a real production environment, this would be done via environment variables
-// or a secret manager, NOT by committing the file.
-const serviceAccount = require('../config/serviceAccountKey.json'); // Assumes key is in src/config
+// Initialize Firebase from environment variable instead of file
+const firebaseCredentials = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-try {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-  console.log('Firebase Admin SDK initialized successfully.');
-} catch (error) {
-  if (error.code !== 'app/duplicate-app') {
-    console.error('Firebase Admin SDK initialization error:', error);
+if (firebaseCredentials) {
+  try {
+    const serviceAccount = JSON.parse(firebaseCredentials);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('Firebase Admin SDK initialized successfully.');
+  } catch (error) {
+    if (error.code !== 'app/duplicate-app') {
+      console.error('Firebase Admin SDK initialization error:', error);
+    }
   }
+} else {
+  console.warn('FIREBASE_SERVICE_ACCOUNT not set - authentication will fail');
 }
 
 async function authMiddleware(req, res, next) {
+  // Check if Firebase is initialized
+  if (admin.apps.length === 0) {
+    return res.status(500).json({ message: 'Authentication service not configured' });
+  }
+
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -35,4 +43,4 @@ async function authMiddleware(req, res, next) {
   }
 }
 
-module.exports = authMiddleware; 
+module.exports = authMiddleware;
