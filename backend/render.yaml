@@ -1,19 +1,28 @@
-# Render Blueprint - Infrastructure as Code
-# Deploy to Render.com with a single click
+# Render Blueprint - Supply Chain Platform
+# Deploy all services with: Connect repo → Use Blueprint
+# 
+# IMPORTANT: After deployment, manually set service URLs in API Gateway environment:
+# - INVENTORY_SERVICE_URL = https://inventory-service-xxxx.onrender.com
+# - ORDER_SERVICE_URL = https://order-service-xxxx.onrender.com
+# - etc.
 
 databases:
   - name: supplychain-db
     plan: free
     databaseName: supplychaindb
     user: supplychainuser
+    region: oregon
 
 services:
-  # API Gateway - Main entry point
+  # ============================================
+  # API GATEWAY - Main Entry Point (Port 3000)
+  # ============================================
   - type: web
     name: api-gateway
     plan: free
     runtime: node
-    rootDir: services/1-api-gateway
+    region: oregon
+    rootDir: backend/services/1-api-gateway
     buildCommand: npm install
     startCommand: node src/server.js
     healthCheckPath: /health
@@ -22,51 +31,37 @@ services:
         value: production
       - key: PORT
         value: 3000
+      # IMPORTANT: Set these manually after all services are deployed
+      # Use format: https://service-name-xxxx.onrender.com
       - key: INVENTORY_SERVICE_URL
-        fromService:
-          name: inventory-service
-          type: web
-          property: hostport
+        sync: false
       - key: ORDER_SERVICE_URL
-        fromService:
-          name: order-service
-          type: web
-          property: hostport
+        sync: false
       - key: WAREHOUSE_SERVICE_URL
-        fromService:
-          name: warehouse-service
-          type: web
-          property: hostport
+        sync: false
       - key: DELIVERY_SERVICE_URL
-        fromService:
-          name: delivery-service
-          type: web
-          property: hostport
+        sync: false
       - key: NOTIFICATION_SERVICE_URL
-        fromService:
-          name: notification-service
-          type: web
-          property: hostport
+        sync: false
       - key: FORECASTING_SERVICE_URL
-        fromService:
-          name: forecasting-service
-          type: web
-          property: hostport
+        sync: false
       - key: AGENTIC_AI_SERVICE_URL
-        fromService:
-          name: agentic-service
-          type: web
-          property: hostport
+        sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
 
-  # Inventory Service
+  # ============================================
+  # INVENTORY SERVICE (Port 3001)
+  # ============================================
   - type: web
     name: inventory-service
     plan: free
     runtime: node
-    rootDir: services/2-inventory-service
-    buildCommand: npm install && npm run build
+    region: oregon
+    rootDir: backend/services/2-inventory-service
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -94,13 +89,16 @@ services:
           name: supplychain-db
           property: database
 
-  # Order Service
+  # ============================================
+  # ORDER SERVICE (Port 3002)
+  # ============================================
   - type: web
     name: order-service
     plan: free
     runtime: node
-    rootDir: services/3-order-service
-    buildCommand: npm install && npm run build
+    region: oregon
+    rootDir: backend/services/3-order-service
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -127,19 +125,20 @@ services:
         fromDatabase:
           name: supplychain-db
           property: database
+      # Set manually: https://inventory-service-xxxx.onrender.com
       - key: INVENTORY_SERVICE_URL
-        fromService:
-          name: inventory-service
-          type: web
-          property: hostport
+        sync: false
 
-  # Warehouse Service
+  # ============================================
+  # WAREHOUSE SERVICE (Port 3003)
+  # ============================================
   - type: web
     name: warehouse-service
     plan: free
     runtime: node
-    rootDir: services/4-warehouse-service
-    buildCommand: npm install && npm run build
+    region: oregon
+    rootDir: backend/services/4-warehouse-service
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -166,14 +165,20 @@ services:
         fromDatabase:
           name: supplychain-db
           property: database
+      # Set manually: https://inventory-service-xxxx.onrender.com
+      - key: INVENTORY_SERVICE_URL
+        sync: false
 
-  # Delivery Service
+  # ============================================
+  # DELIVERY SERVICE (Port 3004)
+  # ============================================
   - type: web
     name: delivery-service
     plan: free
     runtime: node
-    rootDir: services/5-delivery-service
-    buildCommand: npm install && npm run build
+    region: oregon
+    rootDir: backend/services/5-delivery-service
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -203,19 +208,24 @@ services:
       - key: MAPPING_API_KEY
         sync: false
 
-  # Notification Service
+  # ============================================
+  # NOTIFICATION SERVICE (Port 3005)
+  # ============================================
   - type: web
     name: notification-service
     plan: free
     runtime: node
-    rootDir: services/6-notification-service
-    buildCommand: npm install && npm run build
+    region: oregon
+    rootDir: backend/services/6-notification-service
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3005
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: SENDGRID_API_KEY
         sync: false
       - key: SENDGRID_FROM_EMAIL
@@ -227,17 +237,22 @@ services:
       - key: TWILIO_PHONE_NUMBER
         sync: false
 
-  # Forecasting Service (Python)
+  # ============================================
+  # FORECASTING SERVICE - Python (Port 8000)
+  # ============================================
   - type: web
     name: forecasting-service
     plan: free
     runtime: python
-    rootDir: services/7-forecasting-service
+    region: oregon
+    rootDir: backend/services/7-forecasting-service
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PORT
         value: 8000
+      - key: PYTHON_VERSION
+        value: 3.11.0
       - key: DB_HOST
         fromDatabase:
           name: supplychain-db
@@ -259,16 +274,21 @@ services:
           name: supplychain-db
           property: database
 
-  # Agentic AI Service (Python)
+  # ============================================
+  # AGENTIC AI SERVICE - Python (Port 8001)
+  # ============================================
   - type: web
     name: agentic-service
     plan: free
     runtime: python
-    rootDir: services/8-agentic-ai-service
+    region: oregon
+    rootDir: backend/services/8-agentic-ai-service
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PORT
         value: 8001
+      - key: PYTHON_VERSION
+        value: 3.11.0
       - key: GROQ_API_KEY
         sync: false
