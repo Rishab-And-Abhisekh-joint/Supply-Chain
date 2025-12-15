@@ -73,7 +73,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/2-inventory-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -110,7 +110,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/3-order-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -152,7 +152,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/4-warehouse-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -194,7 +194,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/5-delivery-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
@@ -233,7 +233,7 @@ services:
     runtime: node
     region: oregon
     rootDir: backend/services/6-notification-service
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
