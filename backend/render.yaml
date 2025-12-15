@@ -1,14 +1,9 @@
 # Render Blueprint - Supply Chain Platform
 # Deploy all services with: Connect repo → Use Blueprint
-# 
-# IMPORTANT: After deployment, manually set service URLs in API Gateway environment:
-# - INVENTORY_SERVICE_URL = https://inventory-service-xxxx.onrender.com
-# - ORDER_SERVICE_URL = https://order-service-xxxx.onrender.com
-# - etc.
 
 databases:
   - name: supplychain-db
-    plan: free
+    plan: basic-256mb
     databaseName: supplychaindb
     user: supplychainuser
     region: oregon
@@ -27,29 +22,48 @@ services:
     startCommand: node src/server.js
     healthCheckPath: /health
     envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
-      # IMPORTANT: Set these manually after all services are deployed
-      # Use format: https://service-name-xxxx.onrender.com
       - key: INVENTORY_SERVICE_URL
-        sync: false
+        fromService:
+          name: inventory-service
+          type: web
+          property: host
       - key: ORDER_SERVICE_URL
-        sync: false
+        fromService:
+          name: order-service
+          type: web
+          property: host
       - key: WAREHOUSE_SERVICE_URL
-        sync: false
+        fromService:
+          name: warehouse-service
+          type: web
+          property: host
       - key: DELIVERY_SERVICE_URL
-        sync: false
+        fromService:
+          name: delivery-service
+          type: web
+          property: host
       - key: NOTIFICATION_SERVICE_URL
-        sync: false
+        fromService:
+          name: notification-service
+          type: web
+          property: host
       - key: FORECASTING_SERVICE_URL
-        sync: false
+        fromService:
+          name: forecasting-service
+          type: web
+          property: host
       - key: AGENTIC_AI_SERVICE_URL
-        sync: false
+        fromService:
+          name: agentic-service
+          type: web
+          property: host
       - key: FRONTEND_URL
-        sync: false
-      - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
 
   # ============================================
@@ -125,9 +139,11 @@ services:
         fromDatabase:
           name: supplychain-db
           property: database
-      # Set manually: https://inventory-service-xxxx.onrender.com
       - key: INVENTORY_SERVICE_URL
-        sync: false
+        fromService:
+          name: inventory-service
+          type: web
+          property: host
 
   # ============================================
   # WAREHOUSE SERVICE (Port 3003)
@@ -165,9 +181,11 @@ services:
         fromDatabase:
           name: supplychain-db
           property: database
-      # Set manually: https://inventory-service-xxxx.onrender.com
       - key: INVENTORY_SERVICE_URL
-        sync: false
+        fromService:
+          name: inventory-service
+          type: web
+          property: host
 
   # ============================================
   # DELIVERY SERVICE (Port 3004)
@@ -220,12 +238,12 @@ services:
     buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/main.js
     envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3005
-      - key: FIREBASE_SERVICE_ACCOUNT
-        sync: false
       - key: SENDGRID_API_KEY
         sync: false
       - key: SENDGRID_FROM_EMAIL
@@ -292,3 +310,15 @@ services:
         value: 3.11.0
       - key: GROQ_API_KEY
         sync: false
+      # Required for database_tools.py to query orders
+      - key: ORDER_SERVICE_URL
+        fromService:
+          name: order-service
+          type: web
+          property: host
+      # Required for dispatch_tool.py to create delivery routes
+      - key: DELIVERY_SERVICE_URL
+        fromService:
+          name: delivery-service
+          type: web
+          property: host

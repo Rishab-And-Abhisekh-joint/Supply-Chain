@@ -22,10 +22,16 @@ import { RouteStop } from './delivery/entities/route-stop.entity';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         entities: [DeliveryRoute, RouteStop],
-        synchronize: configService.get<string>('NODE_ENV') !== 'production',
+        // Enable synchronize to auto-create tables
+        // For initial deployment, this creates the missing tables
+        synchronize: true,
+        // SSL configuration required for Render PostgreSQL
+        ssl: configService.get<string>('NODE_ENV') === 'production' 
+          ? { rejectUnauthorized: false } 
+          : false,
       }),
     }),
     DeliveryModule,
   ],
 })
-export class AppModule {} 
+export class AppModule {}
