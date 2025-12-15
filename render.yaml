@@ -3,7 +3,7 @@
 
 databases:
   - name: supplychain-db
-    plan: free
+    plan: basic-256mb
     databaseName: supplychaindb
     user: supplychainuser
     region: oregon
