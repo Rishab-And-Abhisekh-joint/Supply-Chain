@@ -4,34 +4,27 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const proxy = require('express-http-proxy');
 
-const authMiddleware = require('./middleware/auth.middleware');
-
 // Initialize Express app
 const app = express();
 
 // --- CORS Configuration ---
-const allowedOrigins = [
-  'http://localhost:9002',
-  'http://localhost:3001',
-  process.env.FRONTEND_URL,
-  // Vercel preview URLs pattern
-].filter(Boolean);
-
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    // Allow Vercel preview URLs
+    // Allow Vercel URLs
     if (origin && origin.includes('.vercel.app')) {
       return callback(null, true);
     }
     
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow localhost
+    if (origin && origin.includes('localhost')) {
+      return callback(null, true);
     }
+    
+    // Allow all in production for now
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -60,15 +53,48 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'API Gateway is up and running' });
 });
 
-// --- Service Routes ---
-// All routes are protected by the Firebase auth middleware.
-app.use('/api/inventory', authMiddleware, proxy(inventoryServiceUrl));
-app.use('/api/orders', authMiddleware, proxy(orderServiceUrl));
-app.use('/api/warehouse', authMiddleware, proxy(warehouseServiceUrl));
-app.use('/api/delivery', authMiddleware, proxy(deliveryServiceUrl));
-app.use('/api/notifications', authMiddleware, proxy(notificationServiceUrl));
-app.use('/api/forecast', authMiddleware, proxy(forecastingServiceUrl));
-app.use('/api/agentic', authMiddleware, proxy(agenticServiceUrl));
+// --- Service Routes (NO AUTH - for testing) ---
+if (inventoryServiceUrl) {
+  app.use('/api/inventory', proxy(inventoryServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
+
+if (orderServiceUrl) {
+  app.use('/api/orders', proxy(orderServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
+
+if (warehouseServiceUrl) {
+  app.use('/api/warehouse', proxy(warehouseServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
+
+if (deliveryServiceUrl) {
+  app.use('/api/delivery', proxy(deliveryServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
+
+if (notificationServiceUrl) {
+  app.use('/api/notifications', proxy(notificationServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
+
+if (forecastingServiceUrl) {
+  app.use('/api/forecast', proxy(forecastingServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
+
+if (agenticServiceUrl) {
+  app.use('/api/agentic', proxy(agenticServiceUrl, {
+    proxyReqPathResolver: (req) => req.url
+  }));
+}
 
 // --- 404 Handler ---
 app.use((req, res, next) => {
@@ -77,12 +103,17 @@ app.use((req, res, next) => {
 
 // --- Global Error Handler ---
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Gateway Error:', err.message);
   res.status(500).json({ message: 'An internal server error occurred' });
 });
 
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`API Gateway running on port ${PORT}, proxying to all services.`);
+  console.log(`API Gateway running on port ${PORT}`);
+  console.log('Service URLs:');
+  console.log('  Inventory:', inventoryServiceUrl);
+  console.log('  Orders:', orderServiceUrl);
+  console.log('  Warehouse:', warehouseServiceUrl);
+  console.log('  Delivery:', deliveryServiceUrl);
 });
