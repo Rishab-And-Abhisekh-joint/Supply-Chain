@@ -10,6 +10,12 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}
 
+  @Get()
+  @ApiOperation({ summary: 'Get all picklists (warehouse overview)' })
+  findAll() {
+    return this.warehouseService.findAllPickLists();
+  }
+
   @Post('receiving')
   @ApiOperation({ summary: 'Process a new receiving of stock from a supplier' })
   @ApiResponse({ status: 201, description: 'Stock successfully received and updated.'})
@@ -44,4 +50,4 @@ export class WarehouseController {
   ) {
     return this.warehouseService.updatePickListStatus(id, updatePickListStatusDto.status);
   }
-} 
+}
