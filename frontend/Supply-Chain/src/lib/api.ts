@@ -4,11 +4,67 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 // Types
+// Types
 interface ApiResponse<T> {
   data: T | null;
   error: string | null;
   status: number;
 }
+
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  description: string;
+  category: string;
+  unitPrice: number;
+  quantityInStock: number;
+  reorderLevel: number;
+  warehouseId: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateProductDto {
+  sku: string;
+  name: string;
+  description?: string;
+  category: string;
+  unitPrice: number;
+  quantityInStock: number;
+  reorderLevel: number;
+  warehouseId: string;
+}
+
+export interface Order {
+  id: string;
+  orderNumber?: string;
+  customerId: string;
+  customerName: string;
+  status: string;
+  totalAmount: number;
+  amountPaid: number;
+  orderDate?: string;
+  expectedDeliveryDate?: string;
+  deliveryType: string;
+  transitId?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface Delivery {
+  id: string;
+  orderId?: string;
+  driverName?: string;
+  vehicleType?: string;
+  status: string;
+  currentLatitude?: number;
+  currentLongitude?: number;
+  estimatedArrival?: string;
+  route?: { lat: number; lng: number }[];
+}
+
+// interface Warehouse {
 
 interface Warehouse {
   id: string;
