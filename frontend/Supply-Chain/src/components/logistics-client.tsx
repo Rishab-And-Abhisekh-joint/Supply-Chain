@@ -8,7 +8,8 @@ import { z } from "zod";
 import { useSearchParams, useRouter } from "next/navigation";
 import { 
   Loader2, Route, Clock, Wand2, Milestone, MapIcon, AlertTriangle, 
-  Check, X, RefreshCw, Edit, Truck, Package 
+  Check, X, RefreshCw, Edit, Truck, Package, Building2, Warehouse as WarehouseIcon,
+  MapPin, ArrowRight
 } from "lucide-react";
 import Map, { Source, Layer, Marker, type MapRef } from 'react-map-gl';
 import type { LngLatBoundsLike } from 'mapbox-gl';
@@ -27,8 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { 
   getLogisticsOptimization, 
-  createShipmentOrder, 
-  getAvailableLocations,
+  createShipmentOrder,
   type OptimizedRoute 
 } from "@/app/logistics/actions";
 import { useToast } from "@/hooks/use-toast";
@@ -39,10 +39,11 @@ import { Badge } from "./ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { suppliersApi, warehouseApiWithFallback, type Supplier, type Warehouse } from "@/lib/api";
 
 const optimizationFormSchema = z.object({
-  origin: z.string().min(1, "Origin address is required."),
-  destination: z.string().min(1, "Destination address is required."),
+  originId: z.string().min(1, "Please select an origin."),
+  destinationId: z.string().min(1, "Please select a destination."),
 });
 
 const manualRouteFormSchema = z.object({
@@ -57,38 +58,45 @@ const orderDetailsSchema = z.object({
   packageDescription: z.string().optional(),
 });
 
-interface Location {
-  name: string;
-  address: string;
-  coordinates?: { lat: number; lng: number };
-}
-
 const initialViewState = {
   longitude: -98.5795,
   latitude: 39.8283,
   zoom: 3.5
 };
 
-// Coordinates lookup for route visualization
-const locationCoords: Record<string, [number, number]> = {
-  "dtdc hub, new york": [-74.006, 40.7128],
-  "blue dart warehouse, chicago": [-87.6298, 41.8781],
-  "houston, tx": [-95.3698, 29.7604],
-  "1600 amphitheatre parkway, mountain view, ca": [-122.084, 37.422],
-  "1 apple park way, cupertino, ca": [-122.0322, 37.3318],
-  "1124 pike st, seattle, wa": [-122.330, 47.614],
-  "13101 harold green road, austin, tx": [-97.620, 30.224],
-  "123 customer st, clientville": [-122.4194, 37.7749],
-};
+// Haversine formula to calculate distance between two coordinates
+function calculateDistance(
+  lat1: number, 
+  lng1: number, 
+  lat2: number, 
+  lng2: number
+): number {
+  const R = 3959; // Earth's radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
-function getCoords(address: string): [number, number] {
-  const normalized = address.toLowerCase().trim();
-  for (const [key, coords] of Object.entries(locationCoords)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
-      return coords;
-    }
+// Format duration from hours to readable string
+function formatDuration(hours: number): string {
+  if (hours < 1) {
+    return `${Math.round(hours * 60)} minutes`;
+  } else if (hours < 24) {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return m > 0 ? `${h} hours ${m} min` : `${h} hours`;
+  } else {
+    const days = Math.floor(hours / 24);
+    const remainingHours = Math.round(hours % 24);
+    return remainingHours > 0 
+      ? `${days} days ${remainingHours} hours` 
+      : `${days} days`;
   }
-  return [-98.5795, 39.8283];
 }
 
 interface FinalizeOrderDialogProps {
@@ -97,7 +105,8 @@ interface FinalizeOrderDialogProps {
   orderStep: number;
   setOrderStep: (step: number) => void;
   orderDetailsForm: UseFormReturn<z.infer<typeof orderDetailsSchema>>;
-  optimizationForm: UseFormReturn<z.infer<typeof optimizationFormSchema>>;
+  selectedOrigin: Supplier | null;
+  selectedDestination: Warehouse | null;
   handlePlaceOrder: () => void;
   confirmedResult: OptimizedRoute | null;
   isSubmitting: boolean;
@@ -109,7 +118,8 @@ function FinalizeOrderDialog({
   orderStep,
   setOrderStep,
   orderDetailsForm,
-  optimizationForm,
+  selectedOrigin,
+  selectedDestination,
   handlePlaceOrder,
   confirmedResult,
   isSubmitting,
@@ -188,7 +198,7 @@ function FinalizeOrderDialog({
                 <CardContent className="pt-6 text-sm space-y-2">
                   <p>
                     <strong>Route:</strong>{' '}
-                    {optimizationForm.getValues('origin')} → {optimizationForm.getValues('destination')}
+                    {selectedOrigin?.name} → {selectedDestination?.name}
                   </p>
                   <p><strong>Distance:</strong> {confirmedResult?.estimatedDistance}</p>
                   <p><strong>Est. Time:</strong> {confirmedResult?.estimatedTime}</p>
@@ -251,8 +261,14 @@ function LogisticsClientContent() {
   const [postRejectionStep, setPostRejectionStep] = useState<'idle' | 'prompt' | 'manual_entry'>('idle');
   const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
   const [orderStep, setOrderStep] = useState(1);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [loadingLocations, setLoadingLocations] = useState(true);
+  
+  // Separate state for suppliers (origins) and warehouses (destinations)
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [loadingSuppliers, setLoadingSuppliers] = useState(true);
+  const [loadingWarehouses, setLoadingWarehouses] = useState(true);
+  const [selectedOrigin, setSelectedOrigin] = useState<Supplier | null>(null);
+  const [selectedDestination, setSelectedDestination] = useState<Warehouse | null>(null);
   
   const { toast } = useToast();
   const { theme } = useTheme();
@@ -266,8 +282,8 @@ function LogisticsClientContent() {
   const optimizationForm = useForm<z.infer<typeof optimizationFormSchema>>({
     resolver: zodResolver(optimizationFormSchema),
     defaultValues: {
-      origin: "",
-      destination: "",
+      originId: "",
+      destinationId: "",
     },
   });
 
@@ -289,42 +305,68 @@ function LogisticsClientContent() {
     },
   });
 
-  // Fetch available locations from backend
+  // Fetch suppliers (origins) from API
   useEffect(() => {
-    async function fetchLocations() {
-      const response = await getAvailableLocations();
-      if (response.success && response.data) {
-        setLocations(response.data);
+    async function fetchSuppliers() {
+      try {
+        const data = await suppliersApi.getActive();
+        setSuppliers(data);
         
-        // Set defaults if available
-        if (response.data.length >= 2) {
-          optimizationForm.setValue('origin', response.data[0].address);
-          optimizationForm.setValue('destination', response.data[1].address);
+        // Set default if available
+        if (data.length > 0) {
+          setSelectedOrigin(data[0]);
+          optimizationForm.setValue('originId', data[0].id);
         }
+      } catch (error) {
+        console.error('Failed to fetch suppliers:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load suppliers. Using demo data.",
+        });
+      } finally {
+        setLoadingSuppliers(false);
       }
-      setLoadingLocations(false);
     }
-    fetchLocations();
-  }, [optimizationForm]);
+    fetchSuppliers();
+  }, [optimizationForm, toast]);
+
+  // Fetch warehouses (destinations) from API
+  useEffect(() => {
+    async function fetchWarehouses() {
+      try {
+        const data = await warehouseApiWithFallback.getActive();
+        setWarehouses(data);
+        
+        // Set default if available
+        if (data.length > 0) {
+          setSelectedDestination(data[0]);
+          optimizationForm.setValue('destinationId', data[0].id);
+        }
+      } catch (error) {
+        console.error('Failed to fetch warehouses:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load warehouses. Using demo data.",
+        });
+      } finally {
+        setLoadingWarehouses(false);
+      }
+    }
+    fetchWarehouses();
+  }, [optimizationForm, toast]);
 
   // Handle URL params
   useEffect(() => {
-    const originFromQuery = searchParams.get('origin');
-    const destinationFromQuery = searchParams.get('destination');
     const productName = searchParams.get('productName');
     const quantity = searchParams.get('quantity');
 
-    if (originFromQuery) {
-      optimizationForm.setValue('origin', originFromQuery);
-    }
-    if (destinationFromQuery) {
-      optimizationForm.setValue('destination', destinationFromQuery);
-    }
     if (productName && quantity) {
       orderDetailsForm.setValue('packageDescription', `${quantity} units of ${productName}`);
       orderDetailsForm.setValue('packageCount', Math.ceil(parseInt(quantity) / 100));
     }
-  }, [searchParams, optimizationForm, orderDetailsForm]);
+  }, [searchParams, orderDetailsForm]);
 
   // Get theme color
   useEffect(() => {
@@ -335,17 +377,69 @@ function LogisticsClientContent() {
     }
   }, [theme]);
 
+  // Handle origin selection
+  const handleOriginChange = (supplierId: string) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (supplier) {
+      setSelectedOrigin(supplier);
+      optimizationForm.setValue('originId', supplierId);
+    }
+  };
+
+  // Handle destination selection
+  const handleDestinationChange = (warehouseId: string) => {
+    const warehouse = warehouses.find(w => w.id === warehouseId);
+    if (warehouse) {
+      setSelectedDestination(warehouse);
+      optimizationForm.setValue('destinationId', warehouseId);
+    }
+  };
+
   async function onOptimizationSubmit(values: z.infer<typeof optimizationFormSchema>) {
+    if (!selectedOrigin || !selectedDestination) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select both origin and destination.",
+      });
+      return;
+    }
+
     setIsLoading(true);
     setProposedResult(null);
     setConfirmedResult(null);
     setRouteGeoJSON(null);
     setPostRejectionStep('idle');
 
-    const response = await getLogisticsOptimization(values);
+    // Build origin and destination strings for the action
+    const originStr = `${selectedOrigin.name}, ${selectedOrigin.city}, ${selectedOrigin.state}`;
+    const destStr = `${selectedDestination.name}, ${selectedDestination.city}, ${selectedDestination.state}`;
+
+    const response = await getLogisticsOptimization({
+      origin: originStr,
+      destination: destStr,
+    });
 
     if (response.success && response.data) {
-      setProposedResult(response.data);
+      // Enhance the response with calculated distance if coordinates are available
+      const enhancedResult = { ...response.data };
+      
+      if (selectedOrigin.latitude && selectedOrigin.longitude && 
+          selectedDestination.latitude && selectedDestination.longitude) {
+        const distance = calculateDistance(
+          selectedOrigin.latitude,
+          selectedOrigin.longitude,
+          selectedDestination.latitude!,
+          selectedDestination.longitude!
+        );
+        
+        // Update with calculated values
+        enhancedResult.estimatedDistance = `${Math.round(distance)} miles`;
+        const hours = distance / 50; // 50 mph average
+        enhancedResult.estimatedTime = formatDuration(hours);
+      }
+      
+      setProposedResult(enhancedResult);
       toast({ title: "Route Optimized", description: "Please review and confirm the proposed route." });
     } else {
       toast({ variant: "destructive", title: "Error", description: response.error });
@@ -355,9 +449,13 @@ function LogisticsClientContent() {
   }
 
   const handleConfirmRoute = () => {
-    const { origin, destination } = optimizationForm.getValues();
-    const originCoords = getCoords(origin);
-    const destCoords = getCoords(destination);
+    if (!selectedOrigin || !selectedDestination) return;
+    
+    const originCoords: [number, number] = [selectedOrigin.longitude, selectedOrigin.latitude];
+    const destCoords: [number, number] = [
+      selectedDestination.longitude || -98.5795, 
+      selectedDestination.latitude || 39.8283
+    ];
     
     const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
       type: 'Feature',
@@ -411,12 +509,14 @@ function LogisticsClientContent() {
   };
 
   const handlePlaceOrder = async () => {
+    if (!selectedOrigin || !selectedDestination) return;
+    
     setIsSubmitting(true);
     
     try {
       const orderData = {
-        origin: optimizationForm.getValues('origin'),
-        destination: optimizationForm.getValues('destination'),
+        origin: `${selectedOrigin.name}, ${selectedOrigin.city}, ${selectedOrigin.state}`,
+        destination: `${selectedDestination.name}, ${selectedDestination.city}, ${selectedDestination.state}`,
         packageCount: orderDetailsForm.getValues('packageCount'),
         packageSize: orderDetailsForm.getValues('packageSize'),
         packageDescription: orderDetailsForm.getValues('packageDescription'),
@@ -436,11 +536,12 @@ function LogisticsClientContent() {
       } else {
         throw new Error(response.error);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Could not place order.";
       toast({ 
         variant: "destructive", 
         title: "Order Failed", 
-        description: error.message || "Could not place order." 
+        description: errorMessage,
       });
     } finally {
       setIsSubmitting(false);
@@ -449,40 +550,97 @@ function LogisticsClientContent() {
 
   const result = confirmedResult || proposedResult;
   const isMapReady = mapboxToken && !mapboxToken.startsWith('sk.') && mapboxToken !== 'pk.YOUR_MAPBOX_API_KEY_HERE';
+  const isDataLoading = loadingSuppliers || loadingWarehouses;
 
-  if (loadingLocations) {
+  if (isDataLoading) {
     return (
       <div className="flex items-center justify-center min-h-[200px]">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        <span className="ml-2">Loading locations...</span>
+        <span className="ml-2">Loading suppliers and warehouses...</span>
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Building2 className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Active Suppliers</p>
+                <p className="text-2xl font-bold">{suppliers.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                <WarehouseIcon className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Warehouses</p>
+                <p className="text-2xl font-bold">{warehouses.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                <Wand2 className="h-6 w-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">AI Optimization</p>
+                <p className="text-2xl font-bold">24/7</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         {/* Left Panel */}
         <div className="space-y-6">
           {/* Route Form */}
           <Form {...optimizationForm}>
             <form onSubmit={optimizationForm.handleSubmit(onOptimizationSubmit)} className="space-y-6">
+              {/* Origin Dropdown (Suppliers) */}
               <FormField
                 control={optimizationForm.control}
-                name="origin"
+                name="originId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Origin</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <FormLabel className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-blue-600" />
+                      Origin (Supplier/Distributor)
+                    </FormLabel>
+                    <Select 
+                      onValueChange={handleOriginChange} 
+                      value={field.value}
+                      disabled={!!confirmedResult}
+                    >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select origin" />
+                          <SelectValue placeholder="Select origin supplier..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {locations.map(loc => (
-                          <SelectItem key={loc.name} value={loc.address}>
-                            {loc.name}
+                        {suppliers.map(supplier => (
+                          <SelectItem key={supplier.id} value={supplier.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{supplier.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {supplier.city}, {supplier.state} • {supplier.type}
+                              </span>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -491,22 +649,36 @@ function LogisticsClientContent() {
                   </FormItem>
                 )}
               />
+              
+              {/* Destination Dropdown (Warehouses) */}
               <FormField
                 control={optimizationForm.control}
-                name="destination"
+                name="destinationId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Destination</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <FormLabel className="flex items-center gap-2">
+                      <WarehouseIcon className="h-4 w-4 text-green-600" />
+                      Destination (Warehouse)
+                    </FormLabel>
+                    <Select 
+                      onValueChange={handleDestinationChange} 
+                      value={field.value}
+                      disabled={!!confirmedResult}
+                    >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select destination" />
+                          <SelectValue placeholder="Select destination warehouse..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {locations.map(loc => (
-                          <SelectItem key={loc.name} value={loc.address}>
-                            {loc.name}
+                        {warehouses.map(warehouse => (
+                          <SelectItem key={warehouse.id} value={warehouse.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{warehouse.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {warehouse.city}, {warehouse.state} {warehouse.code && `• ${warehouse.code}`}
+                              </span>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -515,9 +687,29 @@ function LogisticsClientContent() {
                   </FormItem>
                 )}
               />
+
+              {/* Selection Summary */}
+              {selectedOrigin && selectedDestination && !confirmedResult && (
+                <Card className="bg-muted/50">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-blue-600" />
+                        <span>{selectedOrigin.city}, {selectedOrigin.state}</span>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-green-600" />
+                        <span>{selectedDestination.city}, {selectedDestination.state}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Button 
                 type="submit" 
-                disabled={isLoading || confirmedResult !== null || !isMapReady}
+                disabled={isLoading || confirmedResult !== null || !isMapReady || !selectedOrigin || !selectedDestination}
               >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Route className="mr-2 h-4 w-4" />
@@ -610,7 +802,7 @@ function LogisticsClientContent() {
           {isLoading && (
             <div className="text-center py-8">
               <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-              <p className="mt-2 text-muted-foreground">Optimizing route...</p>
+              <p className="mt-2 text-muted-foreground">Optimizing route with AI...</p>
             </div>
           )}
 
@@ -733,6 +925,32 @@ function LogisticsClientContent() {
                         />
                       </Source>
                     )}
+                    
+                    {/* Origin Marker */}
+                    {selectedOrigin && (
+                      <Marker 
+                        longitude={selectedOrigin.longitude} 
+                        latitude={selectedOrigin.latitude}
+                        anchor="bottom"
+                      >
+                        <div className="p-2 bg-blue-600 rounded-full shadow-lg">
+                          <Building2 className="h-4 w-4 text-white" />
+                        </div>
+                      </Marker>
+                    )}
+                    
+                    {/* Destination Marker */}
+                    {selectedDestination && selectedDestination.longitude && selectedDestination.latitude && (
+                      <Marker 
+                        longitude={selectedDestination.longitude} 
+                        latitude={selectedDestination.latitude}
+                        anchor="bottom"
+                      >
+                        <div className="p-2 bg-green-600 rounded-full shadow-lg">
+                          <WarehouseIcon className="h-4 w-4 text-white" />
+                        </div>
+                      </Marker>
+                    )}
                   </Map>
                 </div>
               )}
@@ -747,7 +965,8 @@ function LogisticsClientContent() {
               orderStep={orderStep}
               setOrderStep={setOrderStep}
               orderDetailsForm={orderDetailsForm}
-              optimizationForm={optimizationForm}
+              selectedOrigin={selectedOrigin}
+              selectedDestination={selectedDestination}
               handlePlaceOrder={handlePlaceOrder}
               confirmedResult={confirmedResult}
               isSubmitting={isSubmitting}
