@@ -191,59 +191,124 @@ export const warehouseApi = {
 };
 
 // Inventory API
+// Inventory API
 export const inventoryApi = {
-  async getAll() {
-    return fetchWithAuth('/api/inventory');
+  async getAll(): Promise<Product[]> {
+    const result = await fetchWithAuth<Product[]>('/api/inventory');
+    if (result.error || !result.data) {
+      console.warn('Could not fetch inventory:', result.error);
+      return [];
+    }
+    return result.data;
   },
   
-  async getById(id: string) {
-    return fetchWithAuth(`/api/inventory/${id}`);
+  async getById(id: string): Promise<Product | null> {
+    const result = await fetchWithAuth<Product>(`/api/inventory/${id}`);
+    if (result.error || !result.data) {
+      return null;
+    }
+    return result.data;
   },
   
-  async create(data: unknown) {
-    return fetchWithAuth('/api/inventory', {
+  async create(data: CreateProductDto): Promise<Product> {
+    const result = await fetchWithAuth<Product>('/api/inventory', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (result.error || !result.data) {
+      throw new Error(result.error || 'Failed to create product');
+    }
+    return result.data;
   },
   
-  async update(id: string, data: unknown) {
-    return fetchWithAuth(`/api/inventory/${id}`, {
+  async update(id: string, data: Partial<CreateProductDto>): Promise<Product> {
+    const result = await fetchWithAuth<Product>(`/api/inventory/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+    if (result.error || !result.data) {
+      throw new Error(result.error || 'Failed to update product');
+    }
+    return result.data;
+  },
+
+  async delete(id: string): Promise<void> {
+    const result = await fetchWithAuth<void>(`/api/inventory/${id}`, {
+      method: 'DELETE',
+    });
+    if (result.error) {
+      throw new Error(result.error || 'Failed to delete product');
+    }
   },
 };
 
 // Orders API
 export const ordersApi = {
-  async getAll() {
-    return fetchWithAuth('/api/orders');
+  async getAll(): Promise<Order[]> {
+    const result = await fetchWithAuth<Order[]>('/api/orders');
+    if (result.error || !result.data) {
+      console.warn('Could not fetch orders:', result.error);
+      return [];
+    }
+    return result.data;
   },
   
-  async getById(id: string) {
-    return fetchWithAuth(`/api/orders/${id}`);
+  async getById(id: string): Promise<Order | null> {
+    const result = await fetchWithAuth<Order>(`/api/orders/${id}`);
+    return result.data;
   },
   
-  async create(data: unknown) {
-    return fetchWithAuth('/api/orders', {
+  async create(data: unknown): Promise<Order> {
+    const result = await fetchWithAuth<Order>('/api/orders', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (result.error || !result.data) {
+      throw new Error(result.error || 'Failed to create order');
+    }
+    return result.data;
   },
   
-  async updateStatus(id: string, status: string) {
-    return fetchWithAuth(`/api/orders/${id}/status`, {
+  async updateStatus(id: string, status: string): Promise<Order> {
+    const result = await fetchWithAuth<Order>(`/api/orders/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
+    if (result.error || !result.data) {
+      throw new Error(result.error || 'Failed to update order status');
+    }
+    return result.data;
+  },
+
+  async processPayment(id: string, amount: number): Promise<Order> {
+    const result = await fetchWithAuth<Order>(`/api/orders/${id}/payment`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+    if (result.error || !result.data) {
+      throw new Error(result.error || 'Failed to process payment');
+    }
+    return result.data;
   },
 };
 
 // Delivery API
+
 export const deliveryApi = {
-  async getRoutes() {
-    return fetchWithAuth('/api/delivery/routes');
+  async getActiveRoutes(): Promise<Delivery[]> {
+    const result = await fetchWithAuth<Delivery[]>('/api/delivery/routes/active');
+    if (result.error || !result.data) {
+      return [];
+    }
+    return result.data;
+  },
+  
+  async getRoutes(): Promise<Delivery[]> {
+    const result = await fetchWithAuth<Delivery[]>('/api/delivery/routes');
+    if (result.error || !result.data) {
+      return [];
+    }
+    return result.data;
   },
   
   async createRoute(data: unknown) {
