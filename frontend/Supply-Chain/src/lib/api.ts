@@ -468,17 +468,7 @@ export const inventoryApi = {
     return apiClient.get<Product[]>(`/inventory/low-stock${params}`);
   },
 
-  async create(data: {
-    sku: string;
-    name: string;
-    category: string;
-    unitPrice: number;
-    warehouseId: string;
-    quantityInStock: number;
-    reorderLevel: number;
-    description?: string;
-    [key: string]: unknown;
-  }): Promise<Product> {
+  async create(data: CreateProductDto): Promise<Product> {
     return apiClient.post<Product>('/inventory', data);
   },
 

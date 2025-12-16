@@ -211,6 +211,8 @@ export interface CreateProductDto {
   availableQuantity?: number;
   previousQuantity?: number;
   isActive?: boolean;
+  // Allow additional properties
+  [key: string]: unknown;
 }
 
 export interface Dimensions {
