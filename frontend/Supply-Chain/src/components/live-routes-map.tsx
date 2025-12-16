@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import Map, { Source, Layer, Popup, type MapLayerMouseEvent, type MapRef } from 'react-map-gl';
+// FIXED: Renamed Map to MapGL to avoid shadowing JavaScript's built-in Map class
+import MapGL, { Source, Layer, Popup, type MapLayerMouseEvent, type MapRef } from 'react-map-gl';
 import type { FeatureCollection, Feature, LineString } from 'geojson';
 import type { LngLatBoundsLike } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -63,7 +64,7 @@ interface TransitData {
     [key: string]: {
         id: string;
         name: string;
-        icon: typeof Truck;
+        icon: any;
         color: string;
         routes: TransitRoute[];
     };
@@ -189,7 +190,7 @@ interface LiveRoutesMapProps {
     selectedOrderId: string | null;
 }
 
-// Type for bounds array
+// Type for bounds array to enable proper indexing
 type BoundsArray = [[number, number], [number, number]];
 
 export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMapProps) {
@@ -197,7 +198,7 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
     const { theme } = useTheme();
     const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
     const [transitData, setTransitData] = useState<TransitData>(fallbackTransitData);
-    // FIX: Use lazy initializer to avoid JSX parsing issues with generic syntax
+    // FIXED: Use lazy initializer to avoid JSX generic parsing issues
     const [deliveryMap, setDeliveryMap] = useState<Map<string, Delivery>>(() => new Map());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -213,7 +214,7 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
                 const newTransitData = buildTransitDataFromDeliveries(deliveries);
                 setTransitData(newTransitData);
                 
-                // FIX: Build delivery lookup map without generic syntax in JSX
+                // FIXED: Build delivery lookup map with explicit type annotation
                 const newDeliveryMap: Map<string, Delivery> = new Map();
                 deliveries.forEach(d => newDeliveryMap.set(d.id, d));
                 setDeliveryMap(newDeliveryMap);
@@ -258,20 +259,14 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
             });
 
             if (routeCoords && routeCoords.length > 0) {
-                // FIX: Use proper typing for bounds calculation
-                const initialBounds: BoundsArray = [
-                    [routeCoords[0][0], routeCoords[0][1]], 
-                    [routeCoords[0][0], routeCoords[0][1]]
-                ];
-                
+                // FIXED: Use BoundsArray type for proper array indexing
                 const bounds = routeCoords.reduce<BoundsArray>(
                     (b, coord) => [
                         [Math.min(b[0][0], coord[0]), Math.min(b[0][1], coord[1])],
                         [Math.max(b[1][0], coord[0]), Math.max(b[1][1], coord[1])],
                     ],
-                    initialBounds
+                    [[routeCoords[0][0], routeCoords[0][1]], [routeCoords[0][0], routeCoords[0][1]]]
                 );
-                
                 mapRef.current.fitBounds(bounds as LngLatBoundsLike, { padding: 60, duration: 1000 });
             }
         }
@@ -346,7 +341,8 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
                     </Button>
                 </div>
             )}
-            <Map
+            {/* FIXED: Use MapGL instead of Map to avoid shadowing JavaScript's Map */}
+            <MapGL
                 ref={mapRef}
                 mapboxAccessToken={mapboxToken}
                 initialViewState={{
@@ -418,7 +414,7 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
                         </div>
                     </Popup>
                 )}
-            </Map>
+            </MapGL>
             <MapLegend transitData={transitData} />
         </div>
     );
