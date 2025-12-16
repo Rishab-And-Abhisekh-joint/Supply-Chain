@@ -1,666 +1,1023 @@
-// src/lib/api.ts
-// FIXED: API service layer with proper error handling
-// UPDATED: Added suppliersApi for logistics optimization dropdowns
+// ============================================================================
+// SUPPLY CHAIN API LAYER
+// Returns data directly (not wrapped in ApiResponse) for compatibility
+// ============================================================================
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+import type {
+  User,
+  UserRole,
+  Location,
+  LocationType,
+  Product,
+  CreateProductDto,
+  InventoryItem,
+  StockMovement,
+  Shipment,
+  ShipmentStatus,
+  GoodsDirection,
+  Order,
+  OrderStatus,
+  PaymentTransaction,
+  PaymentStatus,
+  Carrier,
+  RouteOption,
+  AIActivity,
+  DemandForecast,
+  Bid,
+  Pagination,
+  PaginatedRequest,
+  DashboardStats,
+  CompetitorInsight,
+  MarketTrend,
+  Coordinates,
+  Delivery,
+  Supplier,
+  Warehouse,
+} from '@/types/supply-chain-types';
 
-// Types
-interface ApiResponse<T> {
-  data: T | null;
-  error: string | null;
-  status: number;
-}
+// ============================================================================
+// RE-EXPORT TYPES FOR CONVENIENCE
+// ============================================================================
 
-export interface Product {
-  id: string;
-  sku: string;
-  name: string;
-  description: string;
-  category: string;
-  unitPrice: number;
-  quantityInStock: number;
-  reorderLevel: number;
-  warehouseId: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
+export type {
+  User,
+  UserRole,
+  Location,
+  LocationType,
+  Product,
+  CreateProductDto,
+  InventoryItem,
+  StockMovement,
+  Shipment,
+  ShipmentStatus,
+  GoodsDirection,
+  Order,
+  OrderStatus,
+  PaymentTransaction,
+  PaymentStatus,
+  Carrier,
+  RouteOption,
+  AIActivity,
+  DemandForecast,
+  Bid,
+  Pagination,
+  PaginatedRequest,
+  DashboardStats,
+  CompetitorInsight,
+  MarketTrend,
+  Coordinates,
+  Delivery,
+  Supplier,
+  Warehouse,
+};
 
-export interface CreateProductDto {
-  sku: string;
-  name: string;
-  description?: string;
-  category: string;
-  unitPrice: number;
-  quantityInStock: number;
-  reorderLevel: number;
-  warehouseId: string;
-}
+// ============================================================================
+// API CONFIGURATION
+// ============================================================================
 
-export interface Order {
-  id: string;
-  orderNumber?: string;
-  customerId: string;
-  customerName: string;
-  status: string;
-  totalAmount: number;
-  amountPaid: number;
-  orderDate?: string;
-  expectedDeliveryDate?: string;
-  deliveryType: string;
-  transitId?: string;
-  createdAt: string;
-  updatedAt?: string;
-}
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
 
-export interface Delivery {
-  id: string;
-  orderId?: string;
-  driverName?: string;
-  vehicleType?: string;
-  status: string;
-  currentLatitude?: number;
-  currentLongitude?: number;
-  estimatedArrival?: string;
-  route?: { lat: number; lng: number }[];
-}
+// ============================================================================
+// API CLIENT - Returns data directly
+// ============================================================================
 
-export interface Warehouse {
-  id: string;
-  name: string;
-  code?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  latitude?: number;
-  longitude?: number;
-  capacity?: number;
-  currentOccupancy?: number;
-  isActive?: boolean;
-}
+class ApiClient {
+  private baseUrl: string;
+  private authToken: string | null = null;
 
-// NEW: Supplier interface for logistics optimization
-export interface Supplier {
-  id: string;
-  name: string;
-  code: string;
-  type: 'supplier' | 'distributor' | 'manufacturer';
-  address: string;
-  city: string;
-  state: string;
-  country: string;
-  latitude: number;
-  longitude: number;
-  contactName?: string;
-  contactEmail?: string;
-  contactPhone?: string;
-  status: 'active' | 'inactive';
-}
-
-// Helper to get auth token
-async function getAuthToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const { auth } = await import('@/lib/firebase');
-    const user = auth.currentUser;
-    if (user) {
-      return await user.getIdToken();
-    }
-    return null;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return null;
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
   }
-}
 
-// Generic fetch wrapper with authentication
-async function fetchWithAuth<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<ApiResponse<T>> {
-  try {
-    const token = await getAuthToken();
-    
+  setAuthToken(token: string) {
+    this.authToken = token;
+  }
+
+  clearAuthToken() {
+    this.authToken = null;
+  }
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...options.headers,
     };
-    
-    if (token) {
-      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+
+    if (this.authToken) {
+      (headers as Record<string, string>)['Authorization'] = `Bearer ${this.authToken}`;
     }
 
-    const url = `${API_BASE_URL}${endpoint}`;
-    console.log(`[API] Fetching: ${url}`);
-    
-    const response = await fetch(url, {
-      ...options,
-      headers,
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...options,
+        headers,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'An unknown error occurred');
+      }
+
+      // Return data directly - handle both {data: T} and T responses
+      return (data.data !== undefined ? data.data : data) as T;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  }
+
+  get<T>(endpoint: string): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET' });
+  }
+
+  post<T>(endpoint: string, body: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
+  }
 
-    const status = response.status;
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[API] Error ${status}: ${errorText}`);
-      return {
-        data: null,
-        error: `HTTP ${status}: ${errorText || response.statusText}`,
-        status,
-      };
-    }
+  put<T>(endpoint: string, body: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
 
-    const data = await response.json();
-    return { data, error: null, status };
-  } catch (error) {
-    console.error('[API] Fetch error:', error);
-    return {
-      data: null,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      status: 0,
-    };
+  patch<T>(endpoint: string, body: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  delete<T>(endpoint: string): Promise<T> {
+    return this.request<T>(endpoint, { method: 'DELETE' });
   }
 }
 
-// ============== MOCK DATA FOR FALLBACK ==============
+const apiClient = new ApiClient(API_BASE_URL);
 
-// Mock suppliers data (used when backend /api/suppliers doesn't exist)
-function getMockSuppliers(): Supplier[] {
-  return [
-    {
-      id: 'sup-001',
-      name: 'Global Distribution Inc.',
-      code: 'GDI',
-      type: 'distributor',
-      address: '500 Industrial Blvd',
-      city: 'Chicago',
-      state: 'IL',
-      country: 'USA',
-      latitude: 41.8781,
-      longitude: -87.6298,
-      contactName: 'John Smith',
-      contactEmail: 'john@globaldist.com',
-      contactPhone: '+1-312-555-0100',
-      status: 'active',
-    },
-    {
-      id: 'sup-002',
-      name: 'Pacific Suppliers Co.',
-      code: 'PSC',
-      type: 'supplier',
-      address: '1200 Harbor Way',
-      city: 'Los Angeles',
-      state: 'CA',
-      country: 'USA',
-      latitude: 34.0522,
-      longitude: -118.2437,
-      contactName: 'Maria Garcia',
-      contactEmail: 'maria@pacificsuppliers.com',
-      contactPhone: '+1-213-555-0200',
-      status: 'active',
-    },
-    {
-      id: 'sup-003',
-      name: 'Eastern Manufacturing Ltd.',
-      code: 'EML',
-      type: 'manufacturer',
-      address: '800 Factory Row',
-      city: 'Philadelphia',
-      state: 'PA',
-      country: 'USA',
-      latitude: 39.9526,
-      longitude: -75.1652,
-      contactName: 'Robert Chen',
-      contactEmail: 'robert@easternmfg.com',
-      contactPhone: '+1-215-555-0300',
-      status: 'active',
-    },
-    {
-      id: 'sup-004',
-      name: 'Midwest Logistics Hub',
-      code: 'MLH',
-      type: 'distributor',
-      address: '2500 Gateway Dr',
-      city: 'St. Louis',
-      state: 'MO',
-      country: 'USA',
-      latitude: 38.6270,
-      longitude: -90.1994,
-      contactName: 'Sarah Johnson',
-      contactEmail: 'sarah@midwestlogistics.com',
-      contactPhone: '+1-314-555-0400',
-      status: 'active',
-    },
-    {
-      id: 'sup-005',
-      name: 'Southern Suppliers Network',
-      code: 'SSN',
-      type: 'supplier',
-      address: '1500 Commerce Park',
-      city: 'Atlanta',
-      state: 'GA',
-      country: 'USA',
-      latitude: 33.7490,
-      longitude: -84.3880,
-      contactName: 'Michael Brown',
-      contactEmail: 'michael@southernsuppliers.com',
-      contactPhone: '+1-404-555-0500',
-      status: 'active',
-    },
-    {
-      id: 'sup-006',
-      name: 'Texas Distribution Center',
-      code: 'TDC',
-      type: 'distributor',
-      address: '3200 Logistics Way',
-      city: 'Dallas',
-      state: 'TX',
-      country: 'USA',
-      latitude: 32.7767,
-      longitude: -96.7970,
-      contactName: 'Emily Davis',
-      contactEmail: 'emily@texasdist.com',
-      contactPhone: '+1-214-555-0600',
-      status: 'active',
-    },
-  ];
+// ============================================================================
+// AUTHORITY-BASED FILTERING
+// ============================================================================
+
+export function getLocationsForGoodsFlow(
+  user: User,
+  direction: GoodsDirection,
+  allLocations: Location[]
+): { origins: Location[]; destinations: Location[] } {
+  if (user.role === 'owner' || user.role === 'ceo') {
+    if (direction === 'incoming') {
+      return {
+        origins: allLocations.filter(l => l.type === 'supplier' || l.type === 'distributor'),
+        destinations: allLocations.filter(l => l.type === 'warehouse'),
+      };
+    } else {
+      return {
+        origins: allLocations.filter(l => l.type === 'warehouse'),
+        destinations: allLocations.filter(l => l.type === 'shop' || l.type === 'distributor'),
+      };
+    }
+  }
+
+  if (user.role === 'regional_manager') {
+    const authorizedWarehouses = allLocations.filter(
+      l => l.type === 'warehouse' && user.authorizedWarehouseIds.includes(l.id)
+    );
+    const authorizedShops = allLocations.filter(
+      l => l.type === 'shop' && user.authorizedShopIds.includes(l.id)
+    );
+    
+    if (direction === 'incoming') {
+      return {
+        origins: allLocations.filter(l => l.type === 'supplier' || l.type === 'distributor'),
+        destinations: authorizedWarehouses,
+      };
+    } else {
+      return {
+        origins: authorizedWarehouses,
+        destinations: authorizedShops,
+      };
+    }
+  }
+
+  if (user.role === 'warehouse_manager') {
+    const myWarehouses = allLocations.filter(
+      l => l.type === 'warehouse' && user.authorizedWarehouseIds.includes(l.id)
+    );
+    
+    if (direction === 'incoming') {
+      return {
+        origins: allLocations.filter(l => l.type === 'supplier'),
+        destinations: myWarehouses,
+      };
+    } else {
+      return {
+        origins: myWarehouses,
+        destinations: allLocations.filter(l => l.type === 'shop'),
+      };
+    }
+  }
+
+  if (user.role === 'retail_seller') {
+    const myShops = allLocations.filter(
+      l => l.type === 'shop' && user.authorizedShopIds.includes(l.id)
+    );
+    
+    return {
+      origins: allLocations.filter(l => l.type === 'warehouse'),
+      destinations: myShops,
+    };
+  }
+
+  return { origins: [], destinations: [] };
 }
 
-// Mock warehouses data (used when backend /api/warehouse returns empty or fails)
-function getMockWarehouses(): Warehouse[] {
-  return [
-    {
-      id: 'wh-001',
-      name: 'Central Distribution Center',
-      code: 'CDC',
-      address: '1000 Warehouse Blvd',
-      city: 'Indianapolis',
-      state: 'IN',
-      country: 'USA',
-      latitude: 39.7684,
-      longitude: -86.1581,
-      capacity: 50000,
-      currentOccupancy: 35000,
-      isActive: true,
-    },
-    {
-      id: 'wh-002',
-      name: 'West Coast Fulfillment',
-      code: 'WCF',
-      address: '2500 Port Ave',
-      city: 'Long Beach',
-      state: 'CA',
-      country: 'USA',
-      latitude: 33.7701,
-      longitude: -118.1937,
-      capacity: 75000,
-      currentOccupancy: 52000,
-      isActive: true,
-    },
-    {
-      id: 'wh-003',
-      name: 'Northeast Regional Hub',
-      code: 'NRH',
-      address: '500 Distribution Dr',
-      city: 'Newark',
-      state: 'NJ',
-      country: 'USA',
-      latitude: 40.7357,
-      longitude: -74.1724,
-      capacity: 60000,
-      currentOccupancy: 41000,
-      isActive: true,
-    },
-    {
-      id: 'wh-004',
-      name: 'Southeast Distribution',
-      code: 'SED',
-      address: '800 Logistics Pkwy',
-      city: 'Jacksonville',
-      state: 'FL',
-      country: 'USA',
-      latitude: 30.3322,
-      longitude: -81.6557,
-      capacity: 45000,
-      currentOccupancy: 28000,
-      isActive: true,
-    },
-    {
-      id: 'wh-005',
-      name: 'Mountain States Warehouse',
-      code: 'MSW',
-      address: '1200 Rocky Rd',
-      city: 'Denver',
-      state: 'CO',
-      country: 'USA',
-      latitude: 39.7392,
-      longitude: -104.9903,
-      capacity: 35000,
-      currentOccupancy: 22000,
-      isActive: true,
-    },
+export function filterShipmentsByAuthority(
+  user: User,
+  shipments: Shipment[]
+): Shipment[] {
+  if (user.role === 'owner' || user.role === 'ceo') {
+    return shipments;
+  }
+
+  const authorizedLocationIds = [
+    ...user.authorizedWarehouseIds,
+    ...user.authorizedShopIds,
   ];
+
+  return shipments.filter(
+    s => authorizedLocationIds.includes(s.originId) || 
+         authorizedLocationIds.includes(s.destinationId)
+  );
 }
 
-// ============== SUPPLIERS API (NEW) ==============
+export function hasPermission(
+  user: User,
+  action: string,
+  resourceType?: string,
+  resourceId?: string
+): boolean {
+  if (user.role === 'owner') return true;
+  if (user.role === 'ceo') return action !== 'system_admin';
 
-export const suppliersApi = {
-  // Get all suppliers
-  async getAll(): Promise<Supplier[]> {
-    const result = await fetchWithAuth<Supplier[]>('/api/suppliers');
-    if (result.error || !result.data || result.data.length === 0) {
-      console.warn('Using mock suppliers data (backend unavailable or empty)');
-      return getMockSuppliers();
+  if (user.role === 'regional_manager') {
+    const allowedActions = ['view_assigned_locations', 'manage_inventory', 'manage_shipments', 'view_analytics'];
+    if (!allowedActions.includes(action)) return false;
+    if (resourceId) {
+      return user.authorizedWarehouseIds.includes(resourceId) || user.authorizedShopIds.includes(resourceId);
     }
-    return result.data;
+    return true;
+  }
+
+  if (user.role === 'warehouse_manager') {
+    const allowedActions = ['view_assigned_locations', 'manage_inventory'];
+    if (!allowedActions.includes(action)) return false;
+    if (resourceId) return user.authorizedWarehouseIds.includes(resourceId);
+    return true;
+  }
+
+  if (user.role === 'retail_seller') {
+    const allowedActions = ['view_assigned_locations'];
+    if (!allowedActions.includes(action)) return false;
+    if (resourceId) return user.authorizedShopIds.includes(resourceId);
+    return true;
+  }
+
+  return false;
+}
+
+// ============================================================================
+// AUTHENTICATION API
+// ============================================================================
+
+export const authApi = {
+  async login(email: string, password: string): Promise<{ user: User; token: string; refreshToken: string }> {
+    const response = await apiClient.post<{ user: User; token: string; refreshToken: string }>(
+      '/auth/login',
+      { email, password }
+    );
+    if (response.token) {
+      apiClient.setAuthToken(response.token);
+    }
+    return response;
   },
-  
-  // Get supplier by ID
-  async getById(id: string): Promise<Supplier | null> {
-    const result = await fetchWithAuth<Supplier>(`/api/suppliers/${id}`);
-    if (result.error || !result.data) {
-      // Try to find in mock data
-      const mockSuppliers = getMockSuppliers();
-      return mockSuppliers.find(s => s.id === id) || null;
-    }
-    return result.data;
+
+  async register(data: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    countryCode: string;
+    role: UserRole;
+    businessName: string;
+    licenseNumber: string;
+  }): Promise<User> {
+    return apiClient.post<User>('/auth/register', data);
   },
-  
-  // Get active suppliers only
-  async getActive(): Promise<Supplier[]> {
-    const result = await fetchWithAuth<Supplier[]>('/api/suppliers?status=active');
-    if (result.error || !result.data || result.data.length === 0) {
-      console.warn('Using mock suppliers data (backend unavailable or empty)');
-      return getMockSuppliers().filter(s => s.status === 'active');
-    }
-    return result.data.filter(s => s.status === 'active');
+
+  async logout(): Promise<void> {
+    await apiClient.post<void>('/auth/logout', {});
+    apiClient.clearAuthToken();
+  },
+
+  async refreshToken(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
+    return apiClient.post<{ token: string; refreshToken: string }>('/auth/refresh', { refreshToken });
+  },
+
+  async getCurrentUser(): Promise<User> {
+    return apiClient.get<User>('/auth/me');
+  },
+
+  async updateProfile(data: Partial<User>): Promise<User> {
+    return apiClient.patch<User>('/auth/me', data);
+  },
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    return apiClient.post<void>('/auth/change-password', { oldPassword, newPassword });
   },
 };
 
-// ============== WAREHOUSE API (with fallback) ==============
+// ============================================================================
+// LOCATIONS API
+// ============================================================================
 
-export const warehouseApi = {
-  // Get all warehouses
-  async getAll(): Promise<Warehouse[]> {
-    const result = await fetchWithAuth<Warehouse[]>('/api/warehouse');
-    if (result.error || !result.data) {
-      console.warn('Could not fetch warehouses:', result.error);
-      return [];
-    }
-    return result.data;
-  },
-  
-  // Get warehouse by ID
-  async getById(id: string): Promise<Warehouse | null> {
-    const result = await fetchWithAuth<Warehouse>(`/api/warehouse/${id}`);
-    if (result.error || !result.data) {
-      console.warn(`Could not fetch warehouse ${id}:`, result.error);
-      return null;
-    }
-    return result.data;
-  },
-  
-  // Get warehouse name by ID (with fallback)
-  async getName(id: string): Promise<string> {
-    const warehouse = await this.getById(id);
-    return warehouse?.name || id;
+export const locationsApi = {
+  async getAll(params?: PaginatedRequest): Promise<Location[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy);
+    if (params?.sortOrder) queryParams.set('sortOrder', params.sortOrder);
+    return apiClient.get<Location[]>(`/locations?${queryParams}`);
   },
 
-  // Get receiving endpoint
-  async createReceiving(data: unknown) {
-    return fetchWithAuth('/api/warehouse/receiving', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async getById(id: string): Promise<Location> {
+    return apiClient.get<Location>(`/locations/${id}`);
   },
 
-  // Get picklists
-  async getPicklists() {
-    return fetchWithAuth('/api/warehouse/picklists');
+  async create(data: Omit<Location, 'id' | 'createdAt' | 'updatedAt'>): Promise<Location> {
+    return apiClient.post<Location>('/locations', data);
   },
 
-  // Create picklist
-  async createPicklist(data: unknown) {
-    return fetchWithAuth('/api/warehouse/picklists', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-};
-
-// Warehouse API with fallback to mock data (for logistics dropdowns)
-export const warehouseApiWithFallback = {
-  async getAll(): Promise<Warehouse[]> {
-    const result = await fetchWithAuth<Warehouse[]>('/api/warehouse');
-    if (result.error || !result.data || result.data.length === 0) {
-      console.warn('Using mock warehouses data (backend unavailable or empty)');
-      return getMockWarehouses();
-    }
-    return result.data;
-  },
-  
-  async getActive(): Promise<Warehouse[]> {
-    const warehouses = await this.getAll();
-    return warehouses.filter(w => w.isActive !== false);
-  },
-};
-
-// ============== INVENTORY API ==============
-
-export const inventoryApi = {
-  async getAll(): Promise<Product[]> {
-    const result = await fetchWithAuth<Product[]>('/api/inventory');
-    if (result.error || !result.data) {
-      console.warn('Could not fetch inventory:', result.error);
-      return [];
-    }
-    return result.data;
-  },
-  
-  async getById(id: string): Promise<Product | null> {
-    const result = await fetchWithAuth<Product>(`/api/inventory/${id}`);
-    if (result.error || !result.data) {
-      return null;
-    }
-    return result.data;
-  },
-  
-  async create(data: CreateProductDto): Promise<Product> {
-    const result = await fetchWithAuth<Product>('/api/inventory', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    if (result.error || !result.data) {
-      throw new Error(result.error || 'Failed to create product');
-    }
-    return result.data;
-  },
-  
-  async update(id: string, data: Partial<CreateProductDto>): Promise<Product> {
-    const result = await fetchWithAuth<Product>(`/api/inventory/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
-    if (result.error || !result.data) {
-      throw new Error(result.error || 'Failed to update product');
-    }
-    return result.data;
+  async update(id: string, data: Partial<Location>): Promise<Location> {
+    return apiClient.patch<Location>(`/locations/${id}`, data);
   },
 
   async delete(id: string): Promise<void> {
-    const result = await fetchWithAuth<void>(`/api/inventory/${id}`, {
-      method: 'DELETE',
-    });
-    if (result.error) {
-      throw new Error(result.error || 'Failed to delete product');
-    }
+    return apiClient.delete<void>(`/locations/${id}`);
+  },
+
+  async getByType(type: LocationType): Promise<Location[]> {
+    return apiClient.get<Location[]>(`/locations?type=${type}`);
+  },
+
+  async getByRegion(region: string): Promise<Location[]> {
+    return apiClient.get<Location[]>(`/locations?region=${region}`);
+  },
+
+  async getNearby(coordinates: Coordinates, radiusKm: number): Promise<Location[]> {
+    return apiClient.get<Location[]>(
+      `/locations/nearby?lat=${coordinates.lat}&lng=${coordinates.lng}&radius=${radiusKm}`
+    );
   },
 };
 
-// ============== ORDERS API ==============
+// ============================================================================
+// PRODUCTS API
+// ============================================================================
 
-export const ordersApi = {
-  async getAll(): Promise<Order[]> {
-    const result = await fetchWithAuth<Order[]>('/api/orders');
-    if (result.error || !result.data) {
-      console.warn('Could not fetch orders:', result.error);
+export const productsApi = {
+  async getAll(params?: PaginatedRequest & { category?: string; search?: string }): Promise<Product[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', Math.min(params.pageSize || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE).toString());
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy);
+    if (params?.sortOrder) queryParams.set('sortOrder', params.sortOrder);
+    if (params?.category) queryParams.set('category', params.category);
+    if (params?.search) queryParams.set('search', params.search);
+    return apiClient.get<Product[]>(`/products?${queryParams}`);
+  },
+
+  async getById(id: string): Promise<Product> {
+    return apiClient.get<Product>(`/products/${id}`);
+  },
+
+  async getBySku(sku: string): Promise<Product> {
+    return apiClient.get<Product>(`/products/sku/${sku}`);
+  },
+
+  async create(data: CreateProductDto): Promise<Product> {
+    return apiClient.post<Product>('/products', data);
+  },
+
+  async update(id: string, data: Partial<CreateProductDto>): Promise<Product> {
+    return apiClient.patch<Product>(`/products/${id}`, data);
+  },
+
+  async delete(id: string): Promise<void> {
+    return apiClient.delete<void>(`/products/${id}`);
+  },
+
+  async getCategories(): Promise<string[]> {
+    return apiClient.get<string[]>('/products/categories');
+  },
+
+  async bulkImport(products: CreateProductDto[]): Promise<{ imported: number; failed: number; errors: string[] }> {
+    return apiClient.post<{ imported: number; failed: number; errors: string[] }>('/products/bulk-import', { products });
+  },
+};
+
+// ============================================================================
+// INVENTORY API - Returns Product[] for compatibility with existing code
+// ============================================================================
+
+export const inventoryApi = {
+  // Returns Product[] as expected by existing code (page.tsx, forecasting-client.tsx)
+  async getAll(params?: PaginatedRequest): Promise<Product[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy);
+    if (params?.sortOrder) queryParams.set('sortOrder', params.sortOrder);
+    return apiClient.get<Product[]>(`/inventory?${queryParams}`);
+  },
+
+  async getByLocation(locationId: string, params?: PaginatedRequest): Promise<Product[]> {
+    const queryParams = new URLSearchParams();
+    queryParams.set('locationId', locationId);
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    return apiClient.get<Product[]>(`/inventory?${queryParams}`);
+  },
+
+  async getByProduct(productId: string): Promise<Product[]> {
+    return apiClient.get<Product[]>(`/inventory/product/${productId}`);
+  },
+
+  async getLowStock(threshold?: number): Promise<Product[]> {
+    const params = threshold ? `?threshold=${threshold}` : '';
+    return apiClient.get<Product[]>(`/inventory/low-stock${params}`);
+  },
+
+  async create(data: {
+    sku: string;
+    name: string;
+    category: string;
+    unitPrice: number;
+    warehouseId: string;
+    quantityInStock: number;
+    reorderLevel: number;
+    description?: string;
+    [key: string]: unknown;
+  }): Promise<Product> {
+    return apiClient.post<Product>('/inventory', data);
+  },
+
+  async update(id: string, data: Partial<Product>): Promise<Product> {
+    return apiClient.patch<Product>(`/inventory/${id}`, data);
+  },
+
+  async delete(id: string): Promise<void> {
+    return apiClient.delete<void>(`/inventory/${id}`);
+  },
+
+  async updateStock(
+    productId: string,
+    locationId: string,
+    data: { quantity: number; reason: string }
+  ): Promise<Product> {
+    return apiClient.post<Product>('/inventory/adjust', { productId, locationId, ...data });
+  },
+
+  async transferStock(data: {
+    productId: string;
+    fromLocationId: string;
+    toLocationId: string;
+    quantity: number;
+    reason?: string;
+  }): Promise<void> {
+    return apiClient.post<void>('/inventory/transfer', data);
+  },
+
+  async getMovementHistory(productId: string, locationId?: string): Promise<StockMovement[]> {
+    const params = locationId ? `?locationId=${locationId}` : '';
+    return apiClient.get<StockMovement[]>(`/inventory/movements/${productId}${params}`);
+  },
+};
+
+// ============================================================================
+// SUPPLIERS API
+// ============================================================================
+
+export const suppliersApi = {
+  async getAll(params?: PaginatedRequest): Promise<Supplier[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    return apiClient.get<Supplier[]>(`/suppliers?${queryParams}`);
+  },
+
+  async getActive(): Promise<Supplier[]> {
+    return apiClient.get<Supplier[]>('/suppliers?isActive=true');
+  },
+
+  async getById(id: string): Promise<Supplier> {
+    return apiClient.get<Supplier>(`/suppliers/${id}`);
+  },
+
+  async create(data: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt'>): Promise<Supplier> {
+    return apiClient.post<Supplier>('/suppliers', data);
+  },
+
+  async update(id: string, data: Partial<Supplier>): Promise<Supplier> {
+    return apiClient.patch<Supplier>(`/suppliers/${id}`, data);
+  },
+
+  async delete(id: string): Promise<void> {
+    return apiClient.delete<void>(`/suppliers/${id}`);
+  },
+};
+
+// ============================================================================
+// WAREHOUSES API
+// ============================================================================
+
+export const warehouseApi = {
+  async getAll(params?: PaginatedRequest): Promise<Warehouse[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    return apiClient.get<Warehouse[]>(`/warehouses?${queryParams}`);
+  },
+
+  async getActive(): Promise<Warehouse[]> {
+    return apiClient.get<Warehouse[]>('/warehouses?isActive=true');
+  },
+
+  async getById(id: string): Promise<Warehouse> {
+    return apiClient.get<Warehouse>(`/warehouses/${id}`);
+  },
+
+  async create(data: Omit<Warehouse, 'id' | 'createdAt' | 'updatedAt'>): Promise<Warehouse> {
+    return apiClient.post<Warehouse>('/warehouses', data);
+  },
+
+  async update(id: string, data: Partial<Warehouse>): Promise<Warehouse> {
+    return apiClient.patch<Warehouse>(`/warehouses/${id}`, data);
+  },
+
+  async delete(id: string): Promise<void> {
+    return apiClient.delete<void>(`/warehouses/${id}`);
+  },
+};
+
+// Warehouse API with fallback for error handling
+export const warehouseApiWithFallback = {
+  async getAll(): Promise<Warehouse[]> {
+    try {
+      return await apiClient.get<Warehouse[]>('/warehouses');
+    } catch (error) {
+      console.warn('Warehouse API failed, using fallback');
       return [];
     }
-    return result.data;
-  },
-  
-  async getById(id: string): Promise<Order | null> {
-    const result = await fetchWithAuth<Order>(`/api/orders/${id}`);
-    return result.data;
-  },
-  
-  async create(data: unknown): Promise<Order> {
-    const result = await fetchWithAuth<Order>('/api/orders', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    if (result.error || !result.data) {
-      throw new Error(result.error || 'Failed to create order');
-    }
-    return result.data;
-  },
-  
-  async updateStatus(id: string, status: string): Promise<Order> {
-    const result = await fetchWithAuth<Order>(`/api/orders/${id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    });
-    if (result.error || !result.data) {
-      throw new Error(result.error || 'Failed to update order status');
-    }
-    return result.data;
   },
 
-  async processPayment(id: string, amount: number): Promise<Order> {
-    const result = await fetchWithAuth<Order>(`/api/orders/${id}/payment`, {
-      method: 'POST',
-      body: JSON.stringify({ amount }),
-    });
-    if (result.error || !result.data) {
-      throw new Error(result.error || 'Failed to process payment');
+  async getActive(): Promise<Warehouse[]> {
+    try {
+      return await apiClient.get<Warehouse[]>('/warehouses?isActive=true');
+    } catch (error) {
+      console.warn('Warehouse API failed, using fallback');
+      return [];
     }
-    return result.data;
+  },
+
+  async getById(id: string): Promise<Warehouse> {
+    return apiClient.get<Warehouse>(`/warehouses/${id}`);
+  },
+
+  async create(data: Omit<Warehouse, 'id' | 'createdAt' | 'updatedAt'>): Promise<Warehouse> {
+    return apiClient.post<Warehouse>('/warehouses', data);
+  },
+
+  async update(id: string, data: Partial<Warehouse>): Promise<Warehouse> {
+    return apiClient.patch<Warehouse>(`/warehouses/${id}`, data);
+  },
+
+  async delete(id: string): Promise<void> {
+    return apiClient.delete<void>(`/warehouses/${id}`);
   },
 };
 
-// ============== DELIVERY API ==============
+// ============================================================================
+// DELIVERY API
+// ============================================================================
 
 export const deliveryApi = {
+  async getAll(params?: PaginatedRequest): Promise<Delivery[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    return apiClient.get<Delivery[]>(`/deliveries?${queryParams}`);
+  },
+
+  async getById(id: string): Promise<Delivery> {
+    return apiClient.get<Delivery>(`/deliveries/${id}`);
+  },
+
+  async getActive(): Promise<Delivery[]> {
+    return apiClient.get<Delivery[]>('/deliveries?status=in_transit');
+  },
+
   async getActiveRoutes(): Promise<Delivery[]> {
-    const result = await fetchWithAuth<Delivery[]>('/api/delivery/routes/active');
-    if (result.error || !result.data) {
-      return [];
-    }
-    return result.data;
+    return apiClient.get<Delivery[]>('/deliveries/active-routes');
   },
-  
-  async getRoutes(): Promise<Delivery[]> {
-    const result = await fetchWithAuth<Delivery[]>('/api/delivery/routes');
-    if (result.error || !result.data) {
-      return [];
-    }
-    return result.data;
+
+  async create(data: Omit<Delivery, 'id' | 'createdAt' | 'updatedAt'>): Promise<Delivery> {
+    return apiClient.post<Delivery>('/deliveries', data);
   },
-  
-  async createRoute(data: unknown) {
-    return fetchWithAuth('/api/delivery/routes', {
-      method: 'POST',
-      body: JSON.stringify(data),
+
+  async update(id: string, data: Partial<Delivery>): Promise<Delivery> {
+    return apiClient.patch<Delivery>(`/deliveries/${id}`, data);
+  },
+
+  async updateLocation(id: string, location: { lat: number; lng: number }): Promise<Delivery> {
+    return apiClient.patch<Delivery>(`/deliveries/${id}/location`, {
+      currentLatitude: location.lat,
+      currentLongitude: location.lng,
+      currentLocation: location,
     });
   },
-  
-  async optimizeRoutes(data: unknown) {
-    return fetchWithAuth('/api/delivery/routes/optimize', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+
+  async updateStatus(id: string, status: string): Promise<Delivery> {
+    return apiClient.patch<Delivery>(`/deliveries/${id}/status`, { status });
   },
-  
-  async getRouteById(id: string) {
-    return fetchWithAuth(`/api/delivery/routes/${id}`);
-  },
-  
-  async updateStopStatus(stopId: string, status: string) {
-    return fetchWithAuth(`/api/delivery/stops/${stopId}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    });
+
+  async delete(id: string): Promise<void> {
+    return apiClient.delete<void>(`/deliveries/${id}`);
   },
 };
 
-// ============== FORECAST API ==============
+// ============================================================================
+// SHIPMENTS API
+// ============================================================================
 
-export const forecastApi = {
-  async getDemandForecast(params?: Record<string, string>) {
-    const queryString = params ? `?${new URLSearchParams(params).toString()}` : '';
-    return fetchWithAuth(`/api/forecast/demand${queryString}`);
+export const shipmentsApi = {
+  async getAll(params?: PaginatedRequest & {
+    status?: ShipmentStatus;
+    direction?: GoodsDirection;
+    originId?: string;
+    destinationId?: string;
+  }): Promise<Shipment[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.direction) queryParams.set('direction', params.direction);
+    if (params?.originId) queryParams.set('originId', params.originId);
+    if (params?.destinationId) queryParams.set('destinationId', params.destinationId);
+    return apiClient.get<Shipment[]>(`/shipments?${queryParams}`);
   },
-  
-  async getInventoryForecast(params?: Record<string, string>) {
-    const queryString = params ? `?${new URLSearchParams(params).toString()}` : '';
-    return fetchWithAuth(`/api/forecast/inventory${queryString}`);
+
+  async getById(id: string): Promise<Shipment> {
+    return apiClient.get<Shipment>(`/shipments/${id}`);
+  },
+
+  async getByTracking(trackingNumber: string): Promise<Shipment> {
+    return apiClient.get<Shipment>(`/shipments/track/${trackingNumber}`);
+  },
+
+  async create(data: Omit<Shipment, 'id' | 'trackingNumber' | 'createdAt' | 'updatedAt'>): Promise<Shipment> {
+    return apiClient.post<Shipment>('/shipments', data);
+  },
+
+  async updateStatus(id: string, status: ShipmentStatus, notes?: string): Promise<Shipment> {
+    return apiClient.patch<Shipment>(`/shipments/${id}/status`, { status, notes });
+  },
+
+  async updateLocation(id: string, location: Coordinates): Promise<Shipment> {
+    return apiClient.patch<Shipment>(`/shipments/${id}/location`, { location });
+  },
+
+  async cancel(id: string, reason: string): Promise<Shipment> {
+    return apiClient.post<Shipment>(`/shipments/${id}/cancel`, { reason });
+  },
+
+  async getInTransit(): Promise<Shipment[]> {
+    return apiClient.get<Shipment[]>('/shipments?status=in_transit');
+  },
+
+  async getDelayed(): Promise<Shipment[]> {
+    return apiClient.get<Shipment[]>('/shipments/delayed');
   },
 };
 
-// ============== AGENTIC AI API ==============
+// ============================================================================
+// ORDERS API
+// ============================================================================
 
-export const agenticApi = {
-  async chat(message: string, conversationId?: string) {
-    return fetchWithAuth('/api/agentic/chat', {
-      method: 'POST',
-      body: JSON.stringify({ message, conversationId }),
-    });
+export const ordersApi = {
+  async getAll(params?: PaginatedRequest & { status?: OrderStatus }): Promise<Order[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.pageSize) queryParams.set('pageSize', params.pageSize.toString());
+    if (params?.status) queryParams.set('status', params.status);
+    return apiClient.get<Order[]>(`/orders?${queryParams}`);
   },
-  
-  async getRecommendations(context?: string) {
-    return fetchWithAuth('/api/agentic/recommendations', {
-      method: 'POST',
-      body: JSON.stringify({ context }),
-    });
+
+  async getById(id: string): Promise<Order> {
+    return apiClient.get<Order>(`/orders/${id}`);
   },
-  
-  // Route optimization for logistics
-  async optimizeRoute(originId: string, destinationId: string) {
-    return fetchWithAuth('/api/agentic/optimize-route', {
-      method: 'POST',
-      body: JSON.stringify({ originId, destinationId }),
-    });
+
+  async create(data: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt'>): Promise<Order> {
+    return apiClient.post<Order>('/orders', data);
   },
-  
-  // Delivery planning
-  async planDelivery(data: { originId: string; destinationId: string; items?: unknown[] }) {
-    return fetchWithAuth('/api/agentic/plan-delivery', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+
+  async updateStatus(id: string, status: OrderStatus): Promise<Order> {
+    return apiClient.patch<Order>(`/orders/${id}/status`, { status });
+  },
+
+  async cancel(id: string, reason: string): Promise<Order> {
+    return apiClient.post<Order>(`/orders/${id}/cancel`, { reason });
   },
 };
 
-// ============== HEALTH CHECK ==============
+// ============================================================================
+// PAYMENTS API
+// ============================================================================
 
-export async function checkApiHealth(): Promise<boolean> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/health`);
-    return response.ok;
-  } catch {
-    return false;
-  }
+export const paymentsApi = {
+  async create(data: {
+    orderId: string;
+    amount: number;
+    currency: string;
+    method: string;
+  }): Promise<PaymentTransaction> {
+    return apiClient.post<PaymentTransaction>('/payments', data);
+  },
+
+  async getById(id: string): Promise<PaymentTransaction> {
+    return apiClient.get<PaymentTransaction>(`/payments/${id}`);
+  },
+
+  async getByOrder(orderId: string): Promise<PaymentTransaction[]> {
+    return apiClient.get<PaymentTransaction[]>(`/payments/order/${orderId}`);
+  },
+
+  async processPayment(id: string, gatewayData: Record<string, unknown>): Promise<PaymentTransaction> {
+    return apiClient.post<PaymentTransaction>(`/payments/${id}/process`, gatewayData);
+  },
+
+  async refund(id: string, amount?: number, reason?: string): Promise<PaymentTransaction> {
+    return apiClient.post<PaymentTransaction>(`/payments/${id}/refund`, { amount, reason });
+  },
+
+  async syncPaymentStatus(id: string, status: PaymentStatus, consistencyToken: string): Promise<PaymentTransaction> {
+    return apiClient.post<PaymentTransaction>(`/payments/${id}/sync`, { status, consistencyToken });
+  },
+};
+
+// ============================================================================
+// CARRIERS API
+// ============================================================================
+
+export const carriersApi = {
+  async getAll(): Promise<Carrier[]> {
+    return apiClient.get<Carrier[]>('/carriers');
+  },
+
+  async getById(id: string): Promise<Carrier> {
+    return apiClient.get<Carrier>(`/carriers/${id}`);
+  },
+
+  async getByMode(mode: string): Promise<Carrier[]> {
+    return apiClient.get<Carrier[]>(`/carriers?mode=${mode}`);
+  },
+};
+
+// ============================================================================
+// ROUTE OPTIMIZATION API
+// ============================================================================
+
+export const routesApi = {
+  async findOptimalRoutes(data: {
+    originId: string;
+    destinationId: string;
+    weight?: number;
+    volume?: number;
+    preferredModes?: string[];
+    maxCost?: number;
+    maxDuration?: number;
+  }): Promise<RouteOption[]> {
+    return apiClient.post<RouteOption[]>('/routes/optimize', data);
+  },
+
+  async calculateDistance(origin: Coordinates, destination: Coordinates): Promise<{ distance: number; duration: number }> {
+    return apiClient.post<{ distance: number; duration: number }>('/routes/distance', { origin, destination });
+  },
+};
+
+// ============================================================================
+// AI MONITORING API
+// ============================================================================
+
+export const aiMonitoringApi = {
+  async getActivities(params?: {
+    severity?: string;
+    status?: string;
+    type?: string;
+    limit?: number;
+  }): Promise<AIActivity[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.severity) queryParams.set('severity', params.severity);
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.type) queryParams.set('type', params.type);
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+    return apiClient.get<AIActivity[]>(`/ai/activities?${queryParams}`);
+  },
+
+  async acknowledgeActivity(id: string): Promise<AIActivity> {
+    return apiClient.post<AIActivity>(`/ai/activities/${id}/acknowledge`, {});
+  },
+
+  async resolveActivity(id: string, notes: string): Promise<AIActivity> {
+    return apiClient.post<AIActivity>(`/ai/activities/${id}/resolve`, { notes });
+  },
+
+  async dismissActivity(id: string): Promise<AIActivity> {
+    return apiClient.post<AIActivity>(`/ai/activities/${id}/dismiss`, {});
+  },
+
+  async getStats(): Promise<{
+    total: number;
+    critical: number;
+    alert: number;
+    suspicious: number;
+    ok: number;
+    acknowledged: number;
+    resolved: number;
+  }> {
+    return apiClient.get('/ai/activities/stats');
+  },
+};
+
+// ============================================================================
+// DEMAND FORECASTING API
+// ============================================================================
+
+export const forecastingApi = {
+  async getForecasts(params?: { category?: string; timeframe?: string }): Promise<DemandForecast[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.category) queryParams.set('category', params.category);
+    if (params?.timeframe) queryParams.set('timeframe', params.timeframe);
+    return apiClient.get<DemandForecast[]>(`/forecasting/demand?${queryParams}`);
+  },
+
+  async getForecastByProduct(productId: string): Promise<DemandForecast> {
+    return apiClient.get<DemandForecast>(`/forecasting/demand/${productId}`);
+  },
+
+  async getCompetitorInsights(category?: string): Promise<CompetitorInsight[]> {
+    const params = category ? `?category=${category}` : '';
+    return apiClient.get<CompetitorInsight[]>(`/forecasting/competitors${params}`);
+  },
+
+  async getMarketTrends(): Promise<MarketTrend[]> {
+    return apiClient.get<MarketTrend[]>('/forecasting/trends');
+  },
+
+  async getReorderRecommendations(): Promise<DemandForecast[]> {
+    return apiClient.get<DemandForecast[]>('/forecasting/reorder-recommendations');
+  },
+};
+
+// ============================================================================
+// BIDDING & MARKETPLACE API
+// ============================================================================
+
+export const marketplaceApi = {
+  async searchWarehouses(params: {
+    query?: string;
+    city?: string;
+    products?: string[];
+    minRating?: number;
+  }): Promise<Location[]> {
+    const queryParams = new URLSearchParams();
+    if (params.query) queryParams.set('query', params.query);
+    if (params.city) queryParams.set('city', params.city);
+    if (params.products) queryParams.set('products', params.products.join(','));
+    if (params.minRating) queryParams.set('minRating', params.minRating.toString());
+    return apiClient.get<Location[]>(`/marketplace/warehouses?${queryParams}`);
+  },
+
+  async createBid(data: {
+    routeId: string;
+    amount: number;
+    estimatedDuration: number;
+    notes?: string;
+  }): Promise<Bid> {
+    return apiClient.post<Bid>('/marketplace/bids', data);
+  },
+
+  async getBids(params?: { status?: string; routeId?: string }): Promise<Bid[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.set('status', params.status);
+    if (params?.routeId) queryParams.set('routeId', params.routeId);
+    return apiClient.get<Bid[]>(`/marketplace/bids?${queryParams}`);
+  },
+
+  async acceptBid(id: string): Promise<Bid> {
+    return apiClient.post<Bid>(`/marketplace/bids/${id}/accept`, {});
+  },
+
+  async rejectBid(id: string, reason: string): Promise<Bid> {
+    return apiClient.post<Bid>(`/marketplace/bids/${id}/reject`, { reason });
+  },
+
+  async withdrawBid(id: string): Promise<Bid> {
+    return apiClient.post<Bid>(`/marketplace/bids/${id}/withdraw`, {});
+  },
+};
+
+// ============================================================================
+// DASHBOARD & ANALYTICS API
+// ============================================================================
+
+export const analyticsApi = {
+  async getDashboardStats(): Promise<DashboardStats> {
+    return apiClient.get<DashboardStats>('/analytics/dashboard');
+  },
+
+  async getSalesReport(params: { startDate: string; endDate: string; groupBy?: string }): Promise<unknown> {
+    const queryParams = new URLSearchParams();
+    queryParams.set('startDate', params.startDate);
+    queryParams.set('endDate', params.endDate);
+    if (params.groupBy) queryParams.set('groupBy', params.groupBy);
+    return apiClient.get(`/analytics/sales?${queryParams}`);
+  },
+
+  async getInventoryReport(locationId?: string): Promise<unknown> {
+    const params = locationId ? `?locationId=${locationId}` : '';
+    return apiClient.get(`/analytics/inventory${params}`);
+  },
+
+  async getShipmentReport(params: { startDate: string; endDate: string }): Promise<unknown> {
+    const queryParams = new URLSearchParams();
+    queryParams.set('startDate', params.startDate);
+    queryParams.set('endDate', params.endDate);
+    return apiClient.get(`/analytics/shipments?${queryParams}`);
+  },
+
+  async exportReport(type: string, format: 'csv' | 'xlsx' | 'pdf'): Promise<{ downloadUrl: string }> {
+    return apiClient.get<{ downloadUrl: string }>(`/analytics/export/${type}?format=${format}`);
+  },
+};
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+export function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export default {
-  suppliers: suppliersApi,
-  warehouse: warehouseApi,
-  warehouseWithFallback: warehouseApiWithFallback,
-  inventory: inventoryApi,
-  orders: ordersApi,
-  delivery: deliveryApi,
-  forecast: forecastApi,
-  agentic: agenticApi,
-  checkHealth: checkApiHealth,
-};
+export function formatCurrency(value: number, currency = 'INR'): string {
+  if (currency === 'INR') {
+    if (value >= 1e9) return `₹${(value / 1e9).toFixed(1)}B`;
+    if (value >= 1e7) return `₹${(value / 1e7).toFixed(1)}Cr`;
+    if (value >= 1e5) return `₹${(value / 1e5).toFixed(1)}L`;
+    if (value >= 1e3) return `₹${(value / 1e3).toFixed(1)}K`;
+    return `₹${value.toLocaleString('en-IN')}`;
+  }
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
+}
+
+export function formatNumber(value: number): string {
+  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
+  return value.toLocaleString();
+}
+
+export function formatDuration(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)} mins`;
+  if (hours < 24) return `${hours.toFixed(1)} hrs`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = Math.round(hours % 24);
+  return `${days}d ${remainingHours}h`;
+}
+
+export { apiClient };
