@@ -194,7 +194,7 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
     const { theme } = useTheme();
     const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
     const [transitData, setTransitData] = useState<TransitData>(fallbackTransitData);
-    const [deliveryMap, setDeliveryMap] = useState<Map<string, Delivery>>(new Map());
+    const [deliveryMap, setDeliveryMap] = useState<Map<string, Delivery>>(new Map<string, Delivery>());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
