@@ -123,14 +123,15 @@ app.get('/debug/services', (req, res) => {
 
 // --- Service Routes ---
 
-// Inventory: /api/inventory/* → inventory-service/*
+// Inventory: /api/inventory/* → inventory-service/products/*
 // Controller uses @Controller('products'), so:
-// /api/inventory/products → /products
-// /api/inventory/products/123 → /products/123
+// /api/inventory → /products
+// /api/inventory/123 → /products/123
 app.use('/api/inventory', createProxy('inventory', services.inventory, (path) => {
   // path comes in as what's after /api/inventory was matched
-  // e.g., /api/inventory/products → path = /products
-  const newPath = path || '/';
+  // e.g., /api/inventory → path = /
+  // e.g., /api/inventory/123 → path = /123
+  const newPath = '/products' + (path === '/' ? '' : path);
   console.log(`  [PATH REWRITE] inventory: "${path}" → "${newPath}"`);
   return newPath;
 }));
