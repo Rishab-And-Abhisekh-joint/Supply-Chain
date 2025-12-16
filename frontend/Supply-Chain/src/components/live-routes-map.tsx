@@ -63,7 +63,7 @@ interface TransitData {
     [key: string]: {
         id: string;
         name: string;
-        icon: any;
+        icon: typeof Truck;
         color: string;
         routes: TransitRoute[];
     };
@@ -189,12 +189,16 @@ interface LiveRoutesMapProps {
     selectedOrderId: string | null;
 }
 
+// Type for bounds array
+type BoundsArray = [[number, number], [number, number]];
+
 export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMapProps) {
     const mapRef = useRef<MapRef>(null);
     const { theme } = useTheme();
     const [popupInfo, setPopupInfo] = useState<PopupInfo | null>(null);
     const [transitData, setTransitData] = useState<TransitData>(fallbackTransitData);
-    const [deliveryMap, setDeliveryMap] = useState<Map<string, Delivery>>(new Map<string, Delivery>());
+    // FIX: Use lazy initializer to avoid JSX parsing issues with generic syntax
+    const [deliveryMap, setDeliveryMap] = useState<Map<string, Delivery>>(() => new Map());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
@@ -209,8 +213,8 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
                 const newTransitData = buildTransitDataFromDeliveries(deliveries);
                 setTransitData(newTransitData);
                 
-                // Build delivery lookup map
-                const newDeliveryMap = new Map<string, Delivery>();
+                // FIX: Build delivery lookup map without generic syntax in JSX
+                const newDeliveryMap: Map<string, Delivery> = new Map();
                 deliveries.forEach(d => newDeliveryMap.set(d.id, d));
                 setDeliveryMap(newDeliveryMap);
                 
@@ -254,14 +258,21 @@ export default function LiveRoutesMap({ orders, selectedOrderId }: LiveRoutesMap
             });
 
             if (routeCoords && routeCoords.length > 0) {
-                const bounds = routeCoords.reduce<LngLatBoundsLike>(
+                // FIX: Use proper typing for bounds calculation
+                const initialBounds: BoundsArray = [
+                    [routeCoords[0][0], routeCoords[0][1]], 
+                    [routeCoords[0][0], routeCoords[0][1]]
+                ];
+                
+                const bounds = routeCoords.reduce<BoundsArray>(
                     (b, coord) => [
                         [Math.min(b[0][0], coord[0]), Math.min(b[0][1], coord[1])],
                         [Math.max(b[1][0], coord[0]), Math.max(b[1][1], coord[1])],
                     ],
-                    [[routeCoords[0][0], routeCoords[0][1]], [routeCoords[0][0], routeCoords[0][1]]]
+                    initialBounds
                 );
-                mapRef.current.fitBounds(bounds, { padding: 60, duration: 1000 });
+                
+                mapRef.current.fitBounds(bounds as LngLatBoundsLike, { padding: 60, duration: 1000 });
             }
         }
     }, [selectedOrderId, orders, transitData]);
