@@ -12,26 +12,10 @@ export interface PushOptions {
   sound?: string;
 }
 
-export interface PushMessage {
-  token?: string;
-  tokens?: string[];
-  title: string;
-  body: string;
-  data?: Record<string, any>;
-  imageUrl?: string;
-}
-
 export interface PushResult {
   success: boolean;
   messageId?: string;
   error?: string;
-}
-
-export interface BulkPushOptions {
-  tokens: string[];
-  title: string;
-  body: string;
-  data?: Record<string, any>;
 }
 
 export interface BulkPushResult {
@@ -44,44 +28,67 @@ export interface BulkPushResult {
 export class PushService {
   private readonly logger = new Logger(PushService.name);
   private readonly fcmServerKey: string;
-  private readonly apnsKeyId: string;
 
   constructor(private configService: ConfigService) {
     this.fcmServerKey = this.configService.get<string>('FCM_SERVER_KEY', '');
-    this.apnsKeyId = this.configService.get<string>('APNS_KEY_ID', '');
   }
 
   /**
-   * Simple send method for compatibility
+   * Flexible send method - accepts various message formats
    */
-  async send(message: PushMessage): Promise<PushResult> {
-    // Handle both single token and multiple tokens
-    if (message.tokens && message.tokens.length > 0) {
-      const results = await this.sendBulkPush({
-        tokens: message.tokens,
-        title: message.title,
-        body: message.body,
-        data: message.data,
+  async send(message: any): Promise<PushResult> {
+    try {
+      // Extract token from various possible locations
+      const token = message.token || message.deviceToken || message.to;
+      
+      // Extract notification content
+      const notification = message.notification || {};
+      const title = notification.title || message.title || 'Notification';
+      const body = notification.body || message.body || message.message || '';
+      
+      // Extract data payload
+      const data = message.data || {};
+
+      if (!token) {
+        // Check for multiple tokens
+        const tokens = message.tokens || [];
+        if (tokens.length > 0) {
+          return this.sendToMultiple(tokens, title, body, data);
+        }
+        
+        this.logger.warn('No token provided for push notification');
+        return {
+          success: false,
+          error: 'No token provided',
+        };
+      }
+
+      return this.sendPush({
+        token,
+        title,
+        body,
+        data,
       });
+    } catch (error) {
+      this.logger.error(`Failed to send push: ${error.message}`);
       return {
-        success: results.successCount > 0,
-        messageId: `bulk-${Date.now()}`,
+        success: false,
+        error: error.message,
       };
     }
+  }
 
-    if (message.token) {
-      return this.sendPush({
-        token: message.token,
-        title: message.title,
-        body: message.body,
-        data: message.data,
-        imageUrl: message.imageUrl,
-      });
+  private async sendToMultiple(tokens: string[], title: string, body: string, data: any): Promise<PushResult> {
+    let successCount = 0;
+    
+    for (const token of tokens) {
+      const result = await this.sendPush({ token, title, body, data });
+      if (result.success) successCount++;
     }
 
     return {
-      success: false,
-      error: 'No token provided',
+      success: successCount > 0,
+      messageId: `bulk-${Date.now()}`,
     };
   }
 
@@ -101,34 +108,6 @@ export class PushService {
         error: error.message,
       };
     }
-  }
-
-  async sendBulkPush(options: BulkPushOptions): Promise<BulkPushResult> {
-    const results: PushResult[] = [];
-    let successCount = 0;
-    let failureCount = 0;
-
-    for (const token of options.tokens) {
-      const result = await this.sendPush({
-        token,
-        title: options.title,
-        body: options.body,
-        data: options.data,
-      });
-
-      results.push(result);
-      if (result.success) {
-        successCount++;
-      } else {
-        failureCount++;
-      }
-    }
-
-    return {
-      successCount,
-      failureCount,
-      results,
-    };
   }
 
   private async sendViaFcm(options: PushOptions): Promise<PushResult> {
@@ -171,7 +150,8 @@ export class PushService {
   }
 
   private simulatePushSend(options: PushOptions): PushResult {
-    this.logger.log(`[SIMULATED] Push to token: ${options.token.substring(0, 20)}..., Title: ${options.title}`);
+    const tokenPreview = options.token ? options.token.substring(0, 20) : 'unknown';
+    this.logger.log(`[SIMULATED] Push to token: ${tokenPreview}..., Title: ${options.title}`);
     return {
       success: true,
       messageId: `sim-push-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -218,18 +198,6 @@ export class PushService {
         type: 'DELIVERY_ALERT',
         orderNumber,
         estimatedTime,
-      },
-    });
-  }
-
-  async sendPromotionalNotification(token: string, title: string, message: string, promoCode?: string): Promise<PushResult> {
-    return this.sendPush({
-      token,
-      title,
-      body: message,
-      data: {
-        type: 'PROMOTION',
-        promoCode,
       },
     });
   }
