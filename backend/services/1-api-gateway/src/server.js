@@ -1,219 +1,327 @@
+// ============================================================================
+// API GATEWAY - REQUIRED MODIFICATIONS
+// Based on frontend API expectations from lib/api.ts
+// ============================================================================
+
+// =============================================================================
+// FILE: src/server.js
+// ACTION: MODIFY - Add all proxy routes and new endpoints
+// =============================================================================
+
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const morgan = require('morgan');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+require('dotenv').config();
+
+// Import middleware and services
+const { verifyFirebaseToken } = require('./middleware/auth.middleware');
+const { errorHandler } = require('./middleware/error.middleware');
+const { requestLogger } = require('./middleware/logging.middleware');
+const customerRoutes = require('./routes/customer.routes');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// --- CORS Configuration ---
+// =============================================================================
+// Service URLs (from environment variables)
+// =============================================================================
+const SERVICE_URLS = {
+  inventory: process.env.INVENTORY_SERVICE_URL || 'http://localhost:3001',
+  orders: process.env.ORDER_SERVICE_URL || 'http://localhost:3002',
+  warehouse: process.env.WAREHOUSE_SERVICE_URL || 'http://localhost:3003',
+  delivery: process.env.DELIVERY_SERVICE_URL || 'http://localhost:3004',
+  notification: process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3005',
+  forecasting: process.env.FORECASTING_SERVICE_URL || 'http://localhost:8000',
+  agentic: process.env.AGENTIC_SERVICE_URL || 'http://localhost:8001',
+};
+
+// =============================================================================
+// Middleware Setup
+// =============================================================================
+
+// Security headers
+app.use(helmet());
+
+// CORS configuration
 app.use(cors({
-  origin: true,
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:9002'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-app.use(morgan('dev'));
-app.use(express.json());
-
-// --- Helper function to ensure URL has https:// prefix ---
-const ensureHttps = (url) => {
-  if (!url) return null;
-  url = url.trim();
-  // If URL already has a protocol, return as-is
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
-  }
-  // Otherwise, add https:// prefix (Render services use HTTPS)
-  return `https://${url}`;
-};
-
-// --- Service URLs (with https:// prefix ensured) ---
-const services = {
-  inventory: ensureHttps(process.env.INVENTORY_SERVICE_URL),
-  order: ensureHttps(process.env.ORDER_SERVICE_URL),
-  warehouse: ensureHttps(process.env.WAREHOUSE_SERVICE_URL),
-  delivery: ensureHttps(process.env.DELIVERY_SERVICE_URL),
-  notification: ensureHttps(process.env.NOTIFICATION_SERVICE_URL),
-  forecasting: ensureHttps(process.env.FORECASTING_SERVICE_URL),
-  agentic: ensureHttps(process.env.AGENTIC_AI_SERVICE_URL),
-};
-
-// Log service URLs on startup for debugging
-console.log('\n====== SERVICE URL CONFIGURATION ======');
-Object.entries(services).forEach(([name, url]) => {
-  console.log(`  ${name.padEnd(15)}: ${url || '❌ NOT SET'}`);
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // limit each IP to 1000 requests per windowMs
+  message: { error: 'Too many requests, please try again later.' },
 });
-console.log('========================================\n');
+app.use('/api/', limiter);
 
-// --- Proxy factory with timeout and error handling ---
-const createProxy = (serviceName, target, pathRewriteFn) => {
-  if (!target) {
-    // Return a middleware that returns 503 if service URL not configured
-    return (req, res) => {
-      console.error(`[ERROR] ${serviceName} service URL not configured`);
-      res.status(503).json({
-        error: 'Service not configured',
-        message: `The ${serviceName} service URL is not set in environment variables`,
-      });
-    };
-  }
+// Request logging (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+}
 
+// Custom request logger for activity tracking
+app.use(requestLogger);
+
+// Parse JSON bodies for non-proxied routes
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// =============================================================================
+// Health Check (no auth required)
+// =============================================================================
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    services: Object.keys(SERVICE_URLS),
+  });
+});
+
+// =============================================================================
+// API Version endpoint
+// =============================================================================
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: '1.0.0',
+    name: 'Supply Chain API Gateway',
+    environment: process.env.NODE_ENV || 'development',
+  });
+});
+
+// =============================================================================
+// Proxy Middleware Factory
+// =============================================================================
+const createServiceProxy = (target, pathRewrite = {}) => {
   return createProxyMiddleware({
     target,
     changeOrigin: true,
-    pathRewrite: pathRewriteFn,
-    timeout: 120000,        // 120 seconds for cold starts
-    proxyTimeout: 120000,
-    secure: true,
-    onProxyReq: (proxyReq, req, res) => {
-      const targetPath = proxyReq.path;
-      console.log(`[PROXY →] ${req.method} ${req.originalUrl} → ${target}${targetPath}`);
-    },
-    onProxyRes: (proxyRes, req, res) => {
-      console.log(`[PROXY ←] ${proxyRes.statusCode} ${req.method} ${req.originalUrl}`);
+    pathRewrite,
+    logLevel: process.env.NODE_ENV === 'development' ? 'debug' : 'warn',
+    onProxyReq: (proxyReq, req) => {
+      // Forward user info if authenticated
+      if (req.user) {
+        proxyReq.setHeader('X-User-Id', req.user.uid);
+        proxyReq.setHeader('X-User-Email', req.user.email || '');
+      }
     },
     onError: (err, req, res) => {
-      console.error(`[PROXY ERROR] ${serviceName}: ${err.message}`);
-      console.error(`[PROXY ERROR] Target: ${target}`);
-      console.error(`[PROXY ERROR] Original URL: ${req.originalUrl}`);
-      
-      if (!res.headersSent) {
-        res.status(502).json({ 
-          error: 'Bad Gateway', 
-          message: `Could not connect to ${serviceName} service. It may be starting up (cold start can take 30-60 seconds on free tier).`,
-          service: serviceName,
-          target: target,
-          originalError: err.message
-        });
-      }
-    }
+      console.error(`Proxy error for ${req.url}:`, err.message);
+      res.status(503).json({
+        error: 'Service temporarily unavailable',
+        service: req.path.split('/')[2],
+      });
+    },
   });
 };
 
-// --- Health Check ---
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'API Gateway running', 
-    timestamp: new Date().toISOString(),
-    services: Object.fromEntries(
-      Object.entries(services).map(([k, v]) => [k, v ? '✅ ' + v : '❌ not set'])
-    )
+// =============================================================================
+// Protected Routes (require authentication)
+// =============================================================================
+
+// Customer management routes (handled by API Gateway)
+app.use('/api/customers', verifyFirebaseToken, customerRoutes);
+
+// Inventory Service
+// Frontend: inventoryApi from lib/api.ts
+app.use('/api/inventory',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.inventory, {
+    '^/api/inventory': '/inventory',
+  })
+);
+
+// Products alias (some frontend calls use /products)
+app.use('/api/products',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.inventory, {
+    '^/api/products': '/inventory',
+  })
+);
+
+// Orders Service
+// Frontend: ordersApi from lib/api.ts
+app.use('/api/orders',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.orders, {
+    '^/api/orders': '/orders',
+  })
+);
+
+// Warehouse Service
+// Frontend: warehouseApi from lib/api.ts
+app.use('/api/warehouse',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.warehouse, {
+    '^/api/warehouse': '/warehouse',
+  })
+);
+app.use('/api/warehouses',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.warehouse, {
+    '^/api/warehouses': '/warehouse',
+  })
+);
+
+// Delivery Service
+// Frontend: deliveryApi from lib/api.ts
+app.use('/api/delivery',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.delivery, {
+    '^/api/delivery': '/delivery',
+  })
+);
+app.use('/api/deliveries',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.delivery, {
+    '^/api/deliveries': '/delivery',
+  })
+);
+
+// Notification Service
+app.use('/api/notifications',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.notification, {
+    '^/api/notifications': '/notification',
+  })
+);
+
+// Events Stream (for operations-client.tsx real-time events)
+// Frontend: getRealTimeEvents from operations/actions.ts
+app.use('/api/events',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.notification, {
+    '^/api/events': '/events',
+  })
+);
+
+// Forecasting Service (Python/FastAPI)
+// Frontend: forecastApi and getDemandForecast from actions.ts
+app.use('/api/forecast',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.forecasting, {
+    '^/api/forecast': '',
+  })
+);
+
+// Agentic AI Service (Python/FastAPI)
+// Frontend: agenticApi and getAnomalySummary from actions.ts
+app.use('/api/agentic',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.agentic, {
+    '^/api/agentic': '',
+  })
+);
+
+// Logistics Optimization (routes to Agentic service)
+// Frontend: getLogisticsOptimization from logistics/actions.ts
+app.use('/api/logistics',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.agentic, {
+    '^/api/logistics': '/logistics',
+  })
+);
+
+// Marketplace & Bidding (routes to internal handler or dedicated service)
+app.use('/api/marketplace',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.warehouse, {
+    '^/api/marketplace': '/marketplace',
+  })
+);
+
+// Analytics & Dashboard
+app.use('/api/analytics',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.orders, {
+    '^/api/analytics': '/analytics',
+  })
+);
+
+// =============================================================================
+// Semi-Protected Routes (optional auth)
+// =============================================================================
+
+// Locations API (can be accessed for public warehouse lookup)
+app.use('/api/locations',
+  createServiceProxy(SERVICE_URLS.warehouse, {
+    '^/api/locations': '/locations',
+  })
+);
+
+// Suppliers API
+app.use('/api/suppliers',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.warehouse, {
+    '^/api/suppliers': '/suppliers',
+  })
+);
+
+// Carriers API
+app.use('/api/carriers',
+  createServiceProxy(SERVICE_URLS.delivery, {
+    '^/api/carriers': '/carriers',
+  })
+);
+
+// Routes optimization API
+app.use('/api/routes',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.agentic, {
+    '^/api/routes': '/routes',
+  })
+);
+
+// AI Monitoring API
+app.use('/api/ai',
+  verifyFirebaseToken,
+  createServiceProxy(SERVICE_URLS.agentic, {
+    '^/api/ai': '/ai',
+  })
+);
+
+// =============================================================================
+// Catch-all for 404
+// =============================================================================
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Endpoint ${req.method} ${req.originalUrl} not found`,
+    availableEndpoints: [
+      '/api/inventory',
+      '/api/orders',
+      '/api/warehouse',
+      '/api/delivery',
+      '/api/forecast',
+      '/api/agentic',
+      '/api/logistics',
+      '/api/notifications',
+      '/api/customers',
+    ],
   });
 });
 
-// --- Debug endpoint to check service URLs ---
-app.get('/debug/services', (req, res) => {
-  res.json({
-    message: 'Service URL configuration',
-    raw_env: {
-      INVENTORY_SERVICE_URL: process.env.INVENTORY_SERVICE_URL || 'not set',
-      ORDER_SERVICE_URL: process.env.ORDER_SERVICE_URL || 'not set',
-      WAREHOUSE_SERVICE_URL: process.env.WAREHOUSE_SERVICE_URL || 'not set',
-      DELIVERY_SERVICE_URL: process.env.DELIVERY_SERVICE_URL || 'not set',
-      NOTIFICATION_SERVICE_URL: process.env.NOTIFICATION_SERVICE_URL || 'not set',
-      FORECASTING_SERVICE_URL: process.env.FORECASTING_SERVICE_URL || 'not set',
-      AGENTIC_AI_SERVICE_URL: process.env.AGENTIC_AI_SERVICE_URL || 'not set',
-    },
-    processed: services
+// =============================================================================
+// Error Handler
+// =============================================================================
+app.use(errorHandler);
+
+// =============================================================================
+// Start Server
+// =============================================================================
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 API Gateway running on port ${PORT}`);
+  console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Services configured:`);
+  Object.entries(SERVICE_URLS).forEach(([name, url]) => {
+    console.log(`   - ${name}: ${url}`);
   });
 });
 
-// --- Service Routes ---
-
-// Inventory: /api/inventory/* → inventory-service/products/*
-// Controller uses @Controller('products'), so:
-// /api/inventory → /products
-// /api/inventory/123 → /products/123
-app.use('/api/inventory', createProxy('inventory', services.inventory, (path) => {
-  // path comes in as what's after /api/inventory was matched
-  // e.g., /api/inventory → path = /
-  // e.g., /api/inventory/123 → path = /123
-  const newPath = '/products' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] inventory: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// Orders: /api/orders/* → order-service/orders/*
-// Controller uses @Controller('orders'), so:
-// /api/orders → /orders
-// /api/orders/123 → /orders/123
-app.use('/api/orders', createProxy('order', services.order, (path) => {
-  // path comes in as what's after /api/orders
-  // e.g., /api/orders → path = '' or '/'
-  // e.g., /api/orders/123 → path = /123
-  const newPath = '/orders' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] orders: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// Warehouse: /api/warehouse/* → warehouse-service/warehouse/*
-// Controller uses @Controller('warehouse')
-app.use('/api/warehouse', createProxy('warehouse', services.warehouse, (path) => {
-  const newPath = '/warehouse' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] warehouse: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// Delivery: /api/delivery/* → delivery-service/delivery/*
-// Controller uses @Controller('delivery')
-app.use('/api/delivery', createProxy('delivery', services.delivery, (path) => {
-  const newPath = '/delivery' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] delivery: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// Notifications: /api/notifications/* → notification-service/notifications/*
-// Controller uses @Controller('notifications')
-app.use('/api/notifications', createProxy('notification', services.notification, (path) => {
-  const newPath = '/notifications' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] notifications: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// Forecasting: /api/forecast/* → forecasting-service/api/*
-// FastAPI uses prefix="/api"
-app.use('/api/forecast', createProxy('forecasting', services.forecasting, (path) => {
-  const newPath = '/api' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] forecasting: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// Agentic AI: /api/agentic/* → agentic-service/api/v1/*
-// FastAPI uses prefix="/api/v1"
-app.use('/api/agentic', createProxy('agentic', services.agentic, (path) => {
-  const newPath = '/api/v1' + (path === '/' ? '' : path);
-  console.log(`  [PATH REWRITE] agentic: "${path}" → "${newPath}"`);
-  return newPath;
-}));
-
-// --- 404 Handler ---
-app.use((req, res) => {
-  res.status(404).json({ 
-    message: 'Route not found on API Gateway',
-    path: req.originalUrl,
-    hint: 'Available routes: /health, /debug/services, /api/inventory/*, /api/orders/*, /api/warehouse/*, /api/delivery/*, /api/notifications/*, /api/forecast/*, /api/agentic/*'
-  });
-});
-
-// --- Error Handler ---
-app.use((err, req, res, next) => {
-  console.error('[UNHANDLED ERROR]', err);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: err.message 
-  });
-});
-
-// --- Start Server ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n╔════════════════════════════════════════╗`);
-  console.log(`║  API Gateway running on port ${PORT}       ║`);
-  console.log(`╚════════════════════════════════════════╝\n`);
-  console.log(`Test endpoints:`);
-  console.log(`  GET /health          - Check gateway status`);
-  console.log(`  GET /debug/services  - Check service URLs\n`);
-});
+module.exports = app;

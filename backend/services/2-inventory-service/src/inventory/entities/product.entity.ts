@@ -1,49 +1,92 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { ApiProperty } from '@nestjs/swagger';
+// ============================================================================
+// INVENTORY SERVICE - REQUIRED MODIFICATIONS
+// Based on frontend API expectations from lib/api.ts and types
+// ============================================================================
+
+// =============================================================================
+// FILE: src/inventory/entities/product.entity.ts
+// ACTION: MODIFY - Add new fields required by frontend
+// =============================================================================
+
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, BeforeInsert, BeforeUpdate } from 'typeorm';
 
 @Entity('products')
 export class Product {
   @PrimaryGeneratedColumn('uuid')
-  @ApiProperty({ description: 'The unique identifier of the product.' })
   id: string;
 
   @Column({ unique: true })
-  @ApiProperty({ description: 'Stock Keeping Unit - a unique code for the product.' })
   sku: string;
 
   @Column()
-  @ApiProperty({ description: 'The name of the product.' })
   name: string;
 
-  @Column('text', { nullable: true })
-  @ApiProperty({ description: 'A detailed description of the product.', required: false })
+  @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column('decimal', { precision: 10, scale: 2 })
-  @ApiProperty({ description: 'The price of the product.' })
-  price: number;
-
-  @Column('int', { default: 0 })
-  @ApiProperty({ description: 'The current quantity in stock.', default: 0 })
-  stock: number;
-
-  @Column('int', { default: 10 })
-  @ApiProperty({ description: 'The stock level at which a reorder should be triggered.', default: 10 })
-  reorderLevel: number;
-
-  @Column({ nullable: true })
-  @ApiProperty({ description: 'The category of the product.', required: false })
+  @Column()
   category: string;
 
-  @Column({ nullable: true })
-  @ApiProperty({ description: 'URL of the product image.', required: false })
-  imageUrl: string;
-  
-  @CreateDateColumn()
-  @ApiProperty({ description: 'The date and time the product was created.' })
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  subcategory: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  brand: string;
+
+  @Column({ name: 'unit_price', type: 'decimal', precision: 10, scale: 2 })
+  unitPrice: number;
+
+  @Column({ name: 'cost_price', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  costPrice: number;
+
+  @Column({ name: 'quantity_in_stock', type: 'int', default: 0 })
+  quantityInStock: number;
+
+  // === NEW FIELDS REQUIRED BY FRONTEND ===
+
+  @Column({ name: 'reserved_quantity', type: 'int', default: 0 })
+  reservedQuantity: number;
+
+  @Column({ name: 'available_quantity', type: 'int', default: 0 })
+  availableQuantity: number;
+
+  @Column({ name: 'previous_quantity', type: 'int', default: 0 })
+  previousQuantity: number;
+
+  @Column({ name: 'reorder_level', type: 'int', default: 10 })
+  reorderLevel: number;
+
+  @Column({ name: 'reorder_quantity', type: 'int', nullable: true })
+  reorderQuantity: number;
+
+  @Column({ name: 'min_stock_level', type: 'int', default: 0 })
+  minStockLevel: number;
+
+  @Column({ name: 'max_stock_level', type: 'int', nullable: true })
+  maxStockLevel: number;
+
+  @Column({ name: 'weight_kg', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  weightKg: number;
+
+  @Column({ name: 'dimensions_cm', type: 'varchar', length: 50, nullable: true })
+  dimensionsCm: string;
+
+  @Column({ name: 'warehouse_id', type: 'uuid', nullable: true })
+  warehouseId: string;
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
+
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
-  @ApiProperty({ description: 'The date and time the product was last updated.' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-} 
+
+  // Calculate available quantity before save
+  @BeforeInsert()
+  @BeforeUpdate()
+  calculateAvailableQuantity() {
+    this.availableQuantity = this.quantityInStock - (this.reservedQuantity || 0);
+  }
+}

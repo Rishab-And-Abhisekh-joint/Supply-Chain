@@ -6,3 +6,5 @@ langchain-groq
 python-dotenv
 requests
 ortools
+pydantic>=2.0.0
+httpx

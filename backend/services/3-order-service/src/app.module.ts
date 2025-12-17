@@ -14,22 +14,38 @@ import { OrderItem } from './order/entities/order-item.entity';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_NAME'),
-        entities: [Order, OrderItem],
-        // Enable synchronize to auto-create tables
-        // For initial deployment, this creates the missing tables
-        synchronize: true,
-        // SSL configuration required for Render PostgreSQL
-        ssl: configService.get<string>('NODE_ENV') === 'production' 
-          ? { rejectUnauthorized: false } 
-          : false,
-      }),
+      useFactory: (configService: ConfigService) => {
+        // Support both DATABASE_URL and individual DB settings
+        const databaseUrl = configService.get<string>('DATABASE_URL');
+        
+        if (databaseUrl) {
+          return {
+            type: 'postgres',
+            url: databaseUrl,
+            entities: [Order, OrderItem],
+            synchronize: configService.get<string>('NODE_ENV') !== 'production',
+            ssl: configService.get<string>('NODE_ENV') === 'production' 
+              ? { rejectUnauthorized: false } 
+              : false,
+            logging: configService.get<string>('NODE_ENV') === 'development',
+          };
+        }
+
+        return {
+          type: 'postgres',
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get<string>('DB_USERNAME', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', 'postgres'),
+          database: configService.get<string>('DB_NAME', 'order_service'),
+          entities: [Order, OrderItem],
+          synchronize: configService.get<string>('NODE_ENV') !== 'production',
+          ssl: configService.get<string>('NODE_ENV') === 'production' 
+            ? { rejectUnauthorized: false } 
+            : false,
+          logging: configService.get<string>('NODE_ENV') === 'development',
+        };
+      },
     }),
     OrderModule,
   ],
