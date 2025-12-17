@@ -14,12 +14,20 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+// ============ ENUMS - Must match entity enums ============
 export enum ReceivingStatus {
-  PENDING = 'PENDING',
+  SCHEDULED = 'SCHEDULED',
   IN_PROGRESS = 'IN_PROGRESS',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
   ON_HOLD = 'ON_HOLD',
+}
+
+export enum ReceivingType {
+  PURCHASE_ORDER = 'PURCHASE_ORDER',
+  RETURN = 'RETURN',
+  TRANSFER = 'TRANSFER',
+  ADJUSTMENT = 'ADJUSTMENT',
 }
 
 export enum QualityCheckStatus {
@@ -55,13 +63,19 @@ export class CreateReceivingItemDto {
   @ApiProperty({ description: 'Expected quantity' })
   @IsNumber()
   @Min(1)
-  expectedQuantity: number;
+  quantityExpected: number;
 
   @ApiPropertyOptional({ description: 'Received quantity' })
   @IsNumber()
   @IsOptional()
   @Min(0)
   receivedQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Unit cost of the item' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  unitCost?: number;
 
   @ApiPropertyOptional({ description: 'Unit weight of the item' })
   @IsNumber()
@@ -101,6 +115,11 @@ export class CreateReceivingItemDto {
   @IsOptional()
   targetLocation?: string;
 
+  @ApiPropertyOptional({ description: 'Requires quality inspection', default: false })
+  @IsBoolean()
+  @IsOptional()
+  requiresInspection?: boolean;
+
   @ApiPropertyOptional({ description: 'Notes for this item' })
   @IsString()
   @IsOptional()
@@ -109,6 +128,11 @@ export class CreateReceivingItemDto {
 
 // ============ CREATE RECEIVING DTO ============
 export class CreateReceivingDto {
+  @ApiPropertyOptional({ enum: ReceivingType, description: 'Type of receiving' })
+  @IsEnum(ReceivingType)
+  @IsOptional()
+  type?: ReceivingType;
+
   @ApiPropertyOptional({ description: 'Purchase order ID' })
   @IsUUID()
   @IsOptional()
@@ -143,6 +167,21 @@ export class CreateReceivingDto {
   @IsDate()
   @IsOptional()
   expectedDate?: Date;
+
+  @ApiPropertyOptional({ description: 'Receiving dock/door' })
+  @IsString()
+  @IsOptional()
+  receivingDock?: string;
+
+  @ApiPropertyOptional({ description: 'Dock door assignment' })
+  @IsString()
+  @IsOptional()
+  dockDoor?: string;
+
+  @ApiPropertyOptional({ description: 'Carrier/shipping company name' })
+  @IsString()
+  @IsOptional()
+  carrierName?: string;
 
   @ApiPropertyOptional({ description: 'Carrier/shipping company' })
   @IsString()
@@ -182,10 +221,10 @@ export class CreateReceivingDto {
   @Min(0)
   cartonCount?: number;
 
-  @ApiPropertyOptional({ description: 'Dock door assignment' })
-  @IsString()
+  @ApiPropertyOptional({ description: 'Requires quality check', default: false })
+  @IsBoolean()
   @IsOptional()
-  dockDoor?: string;
+  requiresQualityCheck?: boolean;
 
   @ApiPropertyOptional({ description: 'General notes' })
   @IsString()
@@ -222,29 +261,50 @@ export class ProcessReceivingItemDto {
   @ApiProperty({ description: 'Actual quantity received' })
   @IsNumber()
   @Min(0)
-  receivedQuantity: number;
+  quantityReceived: number;
+
+  @ApiPropertyOptional({ description: 'Quantity rejected' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  quantityRejected?: number;
+
+  @ApiPropertyOptional({ description: 'Quantity damaged' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  quantityDamaged?: number;
 
   @ApiPropertyOptional({ enum: ItemCondition, description: 'Condition of items' })
   @IsEnum(ItemCondition)
   @IsOptional()
   condition?: ItemCondition;
 
-  @ApiPropertyOptional({ description: 'Damaged quantity' })
+  @ApiPropertyOptional({ description: 'Damaged quantity (alias)' })
   @IsNumber()
   @IsOptional()
   @Min(0)
   damagedQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Location code for storage' })
+  @IsString()
+  @IsOptional()
+  locationCode?: string;
+
+  @ApiPropertyOptional({ description: 'Lot number' })
+  @IsString()
+  @IsOptional()
+  lotNumber?: string;
 
   @ApiPropertyOptional({ description: 'Batch/Lot number' })
   @IsString()
   @IsOptional()
   batchNumber?: string;
 
-  @ApiPropertyOptional({ description: 'Expiration date' })
-  @Type(() => Date)
-  @IsDate()
+  @ApiPropertyOptional({ description: 'Serial number (single)' })
+  @IsString()
   @IsOptional()
-  expirationDate?: Date;
+  serialNumber?: string;
 
   @ApiPropertyOptional({ description: 'Serial numbers for serialized items' })
   @IsArray()
@@ -252,10 +312,21 @@ export class ProcessReceivingItemDto {
   @IsOptional()
   serialNumbers?: string[];
 
+  @ApiPropertyOptional({ description: 'Expiration date' })
+  @Type(() => Date)
+  @IsDate()
+  @IsOptional()
+  expirationDate?: Date;
+
   @ApiPropertyOptional({ description: 'Storage location assigned' })
   @IsString()
   @IsOptional()
   storageLocation?: string;
+
+  @ApiPropertyOptional({ description: 'User ID who received this item' })
+  @IsUUID()
+  @IsOptional()
+  receivedBy?: string;
 
   @ApiPropertyOptional({ description: 'Notes about this item' })
   @IsString()
@@ -268,6 +339,11 @@ export class QualityCheckDto {
   @ApiProperty({ enum: QualityCheckStatus, description: 'Quality check result' })
   @IsEnum(QualityCheckStatus)
   qualityStatus: QualityCheckStatus;
+
+  @ApiPropertyOptional({ description: 'Whether quality check passed' })
+  @IsBoolean()
+  @IsOptional()
+  passed?: boolean;
 
   @ApiPropertyOptional({ description: 'User ID who performed the check' })
   @IsUUID()
@@ -317,6 +393,11 @@ export class ReceivingFilterDto {
   @IsOptional()
   status?: ReceivingStatus;
 
+  @ApiPropertyOptional({ enum: ReceivingType, description: 'Filter by type' })
+  @IsEnum(ReceivingType)
+  @IsOptional()
+  type?: ReceivingType;
+
   @ApiPropertyOptional({ description: 'Filter by warehouse ID' })
   @IsUUID()
   @IsOptional()
@@ -331,6 +412,11 @@ export class ReceivingFilterDto {
   @IsUUID()
   @IsOptional()
   purchaseOrderId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by discrepancy' })
+  @IsBoolean()
+  @IsOptional()
+  hasDiscrepancy?: boolean;
 
   @ApiPropertyOptional({ description: 'Start date for filtering' })
   @Type(() => Date)

@@ -1,45 +1,206 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as admin from 'firebase-admin';
-import { Message } from 'firebase-admin/messaging';
+
+export interface PushOptions {
+  token: string;
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  imageUrl?: string;
+  actionUrl?: string;
+  badge?: number;
+  sound?: string;
+}
+
+export interface PushResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+export interface BulkPushOptions {
+  tokens: string[];
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+}
+
+export interface BulkPushResult {
+  successCount: number;
+  failureCount: number;
+  results: PushResult[];
+}
 
 @Injectable()
-export class PushService implements OnModuleInit {
-  constructor(private readonly configService: ConfigService) {}
+export class PushService {
+  private readonly logger = new Logger(PushService.name);
+  private readonly fcmServerKey: string;
+  private readonly apnsKeyId: string;
 
-  onModuleInit() {
-    const firebaseCredentials = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT');
-    
-    if (!firebaseCredentials) {
-      console.warn('FIREBASE_SERVICE_ACCOUNT not set - push notifications disabled');
-      return;
-    }
+  constructor(private configService: ConfigService) {
+    this.fcmServerKey = this.configService.get<string>('FCM_SERVER_KEY', '');
+    this.apnsKeyId = this.configService.get<string>('APNS_KEY_ID', '');
+  }
 
-    if (admin.apps.length === 0) {
-      try {
-        const serviceAccount = JSON.parse(firebaseCredentials);
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-        });
-        console.log('Firebase Admin SDK for FCM initialized.');
-      } catch (error) {
-        console.error('Failed to initialize Firebase:', error.message);
+  async sendPush(options: PushOptions): Promise<PushResult> {
+    try {
+      // Check if FCM is configured
+      if (!this.fcmServerKey) {
+        this.logger.warn('FCM not configured, simulating push notification');
+        return this.simulatePushSend(options);
       }
+
+      return await this.sendViaFcm(options);
+    } catch (error) {
+      this.logger.error(`Failed to send push notification: ${error.message}`, error.stack);
+      return {
+        success: false,
+        error: error.message,
+      };
     }
   }
 
-  async send(message: Message): Promise<void> {
-    if (admin.apps.length === 0) {
-      console.warn('Firebase not initialized - skipping push notification');
-      return;
+  async sendBulkPush(options: BulkPushOptions): Promise<BulkPushResult> {
+    const results: PushResult[] = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (const token of options.tokens) {
+      const result = await this.sendPush({
+        token,
+        title: options.title,
+        body: options.body,
+        data: options.data,
+      });
+
+      results.push(result);
+      if (result.success) {
+        successCount++;
+      } else {
+        failureCount++;
+      }
     }
-    
+
+    return {
+      successCount,
+      failureCount,
+      results,
+    };
+  }
+
+  private async sendViaFcm(options: PushOptions): Promise<PushResult> {
     try {
-      await admin.messaging().send(message);
-      console.log(`Push notification successfully sent.`);
+      const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `key=${this.fcmServerKey}`,
+        },
+        body: JSON.stringify({
+          to: options.token,
+          notification: {
+            title: options.title,
+            body: options.body,
+            image: options.imageUrl,
+            sound: options.sound || 'default',
+            badge: options.badge,
+            click_action: options.actionUrl,
+          },
+          data: options.data,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success === 1) {
+        this.logger.log(`Push notification sent, message_id: ${result.results?.[0]?.message_id}`);
+        return {
+          success: true,
+          messageId: result.results?.[0]?.message_id,
+        };
+      } else {
+        throw new Error(result.results?.[0]?.error || 'Unknown FCM error');
+      }
     } catch (error) {
-      console.error('Error sending push notification via FCM:', error);
-      throw new Error('Failed to send push notification.');
+      this.logger.error(`FCM error: ${error.message}`);
+      throw error;
     }
+  }
+
+  private simulatePushSend(options: PushOptions): PushResult {
+    this.logger.log(`[SIMULATED] Push to token: ${options.token.substring(0, 20)}..., Title: ${options.title}`);
+    return {
+      success: true,
+      messageId: `sim-push-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    };
+  }
+
+  async sendOrderUpdate(token: string, orderNumber: string, status: string): Promise<PushResult> {
+    const titles: Record<string, string> = {
+      CONFIRMED: 'Order Confirmed! 🎉',
+      PROCESSING: 'Order Processing',
+      SHIPPED: 'Order Shipped! 📦',
+      OUT_FOR_DELIVERY: 'Out for Delivery! 🚚',
+      DELIVERED: 'Order Delivered! ✅',
+      CANCELLED: 'Order Cancelled',
+    };
+
+    const bodies: Record<string, string> = {
+      CONFIRMED: `Your order ${orderNumber} has been confirmed.`,
+      PROCESSING: `Your order ${orderNumber} is being processed.`,
+      SHIPPED: `Your order ${orderNumber} is on its way!`,
+      OUT_FOR_DELIVERY: `Your order ${orderNumber} will arrive today!`,
+      DELIVERED: `Your order ${orderNumber} has been delivered.`,
+      CANCELLED: `Your order ${orderNumber} has been cancelled.`,
+    };
+
+    return this.sendPush({
+      token,
+      title: titles[status] || 'Order Update',
+      body: bodies[status] || `Order ${orderNumber}: ${status}`,
+      data: {
+        type: 'ORDER_UPDATE',
+        orderNumber,
+        status,
+      },
+    });
+  }
+
+  async sendDeliveryAlert(token: string, orderNumber: string, estimatedTime: string): Promise<PushResult> {
+    return this.sendPush({
+      token,
+      title: 'Delivery Coming Soon! 🚚',
+      body: `Your order ${orderNumber} will arrive at ${estimatedTime}`,
+      data: {
+        type: 'DELIVERY_ALERT',
+        orderNumber,
+        estimatedTime,
+      },
+    });
+  }
+
+  async sendPromotionalNotification(token: string, title: string, message: string, promoCode?: string): Promise<PushResult> {
+    return this.sendPush({
+      token,
+      title,
+      body: message,
+      data: {
+        type: 'PROMOTION',
+        promoCode,
+      },
+    });
+  }
+
+  async sendInventoryAlert(token: string, productName: string, currentStock: number): Promise<PushResult> {
+    return this.sendPush({
+      token,
+      title: '⚠️ Low Inventory Alert',
+      body: `${productName} is running low (${currentStock} units remaining)`,
+      data: {
+        type: 'INVENTORY_ALERT',
+        productName,
+        currentStock,
+      },
+    });
   }
 }
