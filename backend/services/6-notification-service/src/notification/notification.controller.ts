@@ -1,220 +1,98 @@
-// ============================================================================
-// ADDITIONAL SERVICES - REQUIRED IMPLEMENTATIONS
-// Based on frontend API expectations from lib/api.ts and hooks/use-api.ts
-// ============================================================================
-
-// =============================================================================
-// 1. NOTIFICATION SERVICE ENHANCEMENTS
-// FILE: 6-notification-service/src/notification/notification.controller.ts
-// Frontend expects: /api/notifications, /api/notifications/{id}/read, /api/notifications/read-all
-// =============================================================================
-
-import { 
-  Controller, Get, Post, Patch, Param, Body, Query,
-  ParseUUIDPipe, HttpCode, HttpStatus, Headers
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  Patch,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { NotificationService } from './notification.service';
 
-// ---------- DTOs ----------
+class SendEmailDto {
+  to: string;
+  subject: string;
+  body: string;
+}
 
-export class CreateNotificationDto {
-  userId: string;
-  type: 'info' | 'warning' | 'error' | 'success';
-  title: string;
+class SendSmsDto {
+  to: string;
   message: string;
-  actionUrl?: string;
 }
 
-export class NotificationResponse {
-  id: string;
-  userId: string;
-  type: 'info' | 'warning' | 'error' | 'success';
+class SendPushDto {
+  token: string;
   title: string;
-  message: string;
-  read: boolean;
-  createdAt: string;
-  actionUrl?: string;
+  body: string;
+  data?: Record<string, any>;
 }
 
-// ---------- Entity ----------
-
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-
-@Entity('notifications')
-export class Notification {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Column({ name: 'user_id', type: 'uuid' })
-  userId: string;
-
-  @Column({ 
-    type: 'enum', 
-    enum: ['info', 'warning', 'error', 'success'],
-    default: 'info' 
-  })
-  type: 'info' | 'warning' | 'error' | 'success';
-
-  @Column()
-  title: string;
-
-  @Column({ type: 'text' })
-  message: string;
-
-  @Column({ default: false })
-  read: boolean;
-
-  @Column({ name: 'action_url', nullable: true })
-  actionUrl: string;
-
-  @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
-
-  @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
-
-  @Column({ name: 'read_at', type: 'timestamp', nullable: true })
-  readAt: Date;
-}
-
-// ---------- Service ----------
-
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-
-@Injectable()
-export class NotificationService {
-  constructor(
-    @InjectRepository(Notification)
-    private notificationRepository: Repository<Notification>,
-  ) {}
-
-  /**
-   * Get all notifications for a user
-   * Frontend: GET /api/notifications
-   */
-  async findByUser(userId: string): Promise<Notification[]> {
-    return this.notificationRepository.find({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-      take: 50, // Limit to last 50 notifications
-    });
-  }
-
-  /**
-   * Create a new notification
-   */
-  async create(dto: CreateNotificationDto): Promise<Notification> {
-    const notification = this.notificationRepository.create(dto);
-    return this.notificationRepository.save(notification);
-  }
-
-  /**
-   * Mark single notification as read
-   * Frontend: PATCH /api/notifications/{id}/read
-   */
-  async markAsRead(id: string, userId: string): Promise<Notification> {
-    const notification = await this.notificationRepository.findOne({
-      where: { id, userId },
-    });
-
-    if (!notification) {
-      throw new Error('Notification not found');
-    }
-
-    notification.read = true;
-    notification.readAt = new Date();
-    return this.notificationRepository.save(notification);
-  }
-
-  /**
-   * Mark all notifications as read for a user
-   * Frontend: POST /api/notifications/read-all
-   */
-  async markAllAsRead(userId: string): Promise<{ updated: number }> {
-    const result = await this.notificationRepository.update(
-      { userId, read: false },
-      { read: true, readAt: new Date() }
-    );
-    return { updated: result.affected || 0 };
-  }
-
-  /**
-   * Delete old notifications (cleanup job)
-   */
-  async deleteOldNotifications(daysOld: number = 30): Promise<number> {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-
-    const result = await this.notificationRepository
-      .createQueryBuilder()
-      .delete()
-      .where('created_at < :cutoffDate', { cutoffDate })
-      .andWhere('read = :read', { read: true })
-      .execute();
-
-    return result.affected || 0;
-  }
-}
-
-// ---------- Controller ----------
-
-@Controller('notification')
+@ApiTags('notifications')
+@Controller('notifications')
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
-  /**
-   * GET /notification
-   * Frontend: notificationsApi.getAll()
-   */
+  @Post('email')
+  @ApiOperation({ summary: 'Send email notification' })
+  @ApiResponse({ status: 201, description: 'Email sent successfully' })
+  async sendEmail(@Body() dto: SendEmailDto) {
+    return this.notificationService.sendEmail(dto.to, dto.subject, dto.body);
+  }
+
+  @Post('sms')
+  @ApiOperation({ summary: 'Send SMS notification' })
+  @ApiResponse({ status: 201, description: 'SMS sent successfully' })
+  async sendSms(@Body() dto: SendSmsDto) {
+    return this.notificationService.sendSms(dto.to, dto.message);
+  }
+
+  @Post('push')
+  @ApiOperation({ summary: 'Send push notification' })
+  @ApiResponse({ status: 201, description: 'Push notification sent successfully' })
+  async sendPush(@Body() dto: SendPushDto) {
+    return this.notificationService.sendPush(dto.token, dto.title, dto.body, dto.data);
+  }
+
   @Get()
-  async findAll(@Headers('x-user-id') userId: string): Promise<NotificationResponse[]> {
-    const notifications = await this.notificationService.findByUser(userId);
-    return notifications.map(n => ({
-      id: n.id,
-      userId: n.userId,
-      type: n.type,
-      title: n.title,
-      message: n.message,
-      read: n.read,
-      createdAt: n.createdAt.toISOString(),
-      actionUrl: n.actionUrl,
-    }));
+  @ApiOperation({ summary: 'Get all notifications' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async findAll(
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+  ) {
+    return this.notificationService.findAll(+page, +limit);
   }
 
-  /**
-   * PATCH /notification/:id/read
-   * Frontend: notificationsApi.markAsRead(id)
-   */
+  @Get('stats')
+  @ApiOperation({ summary: 'Get notification statistics' })
+  async getStats() {
+    return this.notificationService.getStats();
+  }
+
+  @Get('user/:userId')
+  @ApiOperation({ summary: 'Get notifications for a user' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async findByUser(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+  ) {
+    return this.notificationService.findByUserId(userId, +page, +limit);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get notification by ID' })
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.notificationService.findOne(id);
+  }
+
   @Patch(':id/read')
-  async markAsRead(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Headers('x-user-id') userId: string
-  ): Promise<NotificationResponse> {
-    const notification = await this.notificationService.markAsRead(id, userId);
-    return {
-      id: notification.id,
-      userId: notification.userId,
-      type: notification.type,
-      title: notification.title,
-      message: notification.message,
-      read: notification.read,
-      createdAt: notification.createdAt.toISOString(),
-      actionUrl: notification.actionUrl,
-    };
-  }
-
-  /**
-   * POST /notification/read-all
-   * Frontend: notificationsApi.markAllAsRead()
-   */
-  @Post('read-all')
-  @HttpCode(HttpStatus.OK)
-  async markAllAsRead(
-    @Headers('x-user-id') userId: string
-  ): Promise<{ updated: number }> {
-    return this.notificationService.markAllAsRead(userId);
+  @ApiOperation({ summary: 'Mark notification as read' })
+  async markAsRead(@Param('id', ParseUUIDPipe) id: string) {
+    return this.notificationService.markAsRead(id);
   }
 }
-
-
