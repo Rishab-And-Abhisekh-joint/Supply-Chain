@@ -12,6 +12,15 @@ export interface PushOptions {
   sound?: string;
 }
 
+export interface PushMessage {
+  token?: string;
+  tokens?: string[];
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  imageUrl?: string;
+}
+
 export interface PushResult {
   success: boolean;
   messageId?: string;
@@ -40,6 +49,40 @@ export class PushService {
   constructor(private configService: ConfigService) {
     this.fcmServerKey = this.configService.get<string>('FCM_SERVER_KEY', '');
     this.apnsKeyId = this.configService.get<string>('APNS_KEY_ID', '');
+  }
+
+  /**
+   * Simple send method for compatibility
+   */
+  async send(message: PushMessage): Promise<PushResult> {
+    // Handle both single token and multiple tokens
+    if (message.tokens && message.tokens.length > 0) {
+      const results = await this.sendBulkPush({
+        tokens: message.tokens,
+        title: message.title,
+        body: message.body,
+        data: message.data,
+      });
+      return {
+        success: results.successCount > 0,
+        messageId: `bulk-${Date.now()}`,
+      };
+    }
+
+    if (message.token) {
+      return this.sendPush({
+        token: message.token,
+        title: message.title,
+        body: message.body,
+        data: message.data,
+        imageUrl: message.imageUrl,
+      });
+    }
+
+    return {
+      success: false,
+      error: 'No token provided',
+    };
   }
 
   async sendPush(options: PushOptions): Promise<PushResult> {

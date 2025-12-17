@@ -26,6 +26,13 @@ export class SmsService {
     this.twilioPhoneNumber = this.configService.get<string>('TWILIO_PHONE_NUMBER', '');
   }
 
+  /**
+   * Simple send method for compatibility
+   */
+  async send(to: string, message: string): Promise<SmsResult> {
+    return this.sendSms({ to, message });
+  }
+
   async sendSms(options: SmsOptions): Promise<SmsResult> {
     try {
       // Check if Twilio is configured

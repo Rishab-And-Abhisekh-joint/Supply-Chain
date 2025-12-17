@@ -34,6 +34,18 @@ export class EmailService {
     this.fromName = this.configService.get<string>('EMAIL_FROM_NAME', 'Supply Chain Platform');
   }
 
+  /**
+   * Simple send method for compatibility
+   */
+  async send(to: string, subject: string, body: string): Promise<EmailResult> {
+    return this.sendEmail({
+      to,
+      subject,
+      text: body,
+      html: body,
+    });
+  }
+
   async sendEmail(options: EmailOptions): Promise<EmailResult> {
     try {
       // Check if SendGrid is configured

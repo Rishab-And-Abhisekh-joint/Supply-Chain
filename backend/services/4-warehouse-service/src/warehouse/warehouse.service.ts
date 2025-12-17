@@ -626,7 +626,9 @@ export class WarehouseService {
     item.quantityReceived = dto.quantityReceived;
     item.quantityRejected = dto.quantityRejected || 0;
     item.quantityDamaged = dto.quantityDamaged || 0;
-    item.condition = dto.condition;
+    if (dto.condition) {
+      item.condition = dto.condition as any;
+    }
     item.status = ReceivingItemStatus.RECEIVED;
 
     if (dto.locationCode) {
