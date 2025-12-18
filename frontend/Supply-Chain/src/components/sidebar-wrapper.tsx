@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { usePathname } from 'next/navigation';
-import { useAuth } from '@/context/auth-context';
+import { useAuth } from '@/contexts/auth-context';
 import Sidebar from './sidebar';
 
 // Routes that should not show sidebar
