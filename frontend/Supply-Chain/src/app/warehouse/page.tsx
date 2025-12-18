@@ -72,13 +72,11 @@ export default function WarehousesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Warehouse Management</h1>
         <p className="text-gray-500">Monitor warehouse capacity and operations</p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-4 border shadow-sm">
           <div className="flex items-center gap-3">
@@ -126,7 +124,6 @@ export default function WarehousesPage() {
         </div>
       </div>
 
-      {/* Warehouse Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {warehouses.map((warehouse) => {
           const utilization = (warehouse.currentStock / warehouse.capacity * 100).toFixed(1);
@@ -151,7 +148,6 @@ export default function WarehousesPage() {
                   </span>
                 </div>
 
-                {/* Capacity Bar */}
                 <div className="mb-4">
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-gray-600">Capacity Utilization</span>
@@ -169,7 +165,6 @@ export default function WarehousesPage() {
                   </div>
                 </div>
 
-                {/* Manager Info */}
                 <div className="flex items-center gap-4 pt-4 border-t">
                   <div className="flex items-center gap-2 text-sm">
                     <User className="w-4 h-4 text-gray-400" />

@@ -126,7 +126,6 @@ export default function NotificationsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
@@ -145,7 +144,6 @@ export default function NotificationsPage() {
         </button>
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-xl p-4 border shadow-sm">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
@@ -185,7 +183,6 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Notifications List */}
       <div className="space-y-3">
         {filteredNotifications.length === 0 ? (
           <div className="bg-white rounded-xl border shadow-sm p-8 text-center">

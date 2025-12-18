@@ -1,10 +1,10 @@
 'use client';
 
-// This page handles /logistics-optimization route (with 's')
+// This page handles /logistics/optimization route
 // Re-exports the LogisticsOptimization component
 
 import LogisticsOptimization from '@/components/logistics-optimization';
 
-export default function LogisticsOptimizationPage() {
+export default function LogisticsOptimizationNestedPage() {
   return <LogisticsOptimization />;
 }
