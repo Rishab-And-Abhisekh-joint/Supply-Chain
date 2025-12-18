@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -63,7 +62,7 @@ const customerRoutes = ['/customer/inventory'];
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { setOpen, open } = useSidebar();
 
   React.useEffect(() => {
