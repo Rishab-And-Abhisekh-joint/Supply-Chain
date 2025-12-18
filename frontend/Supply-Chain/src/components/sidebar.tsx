@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useAuth } from '@/context/auth-context';
+import { useAuth } from '@/contexts/auth-context';
 import {
   LayoutDashboard,
   Package,
