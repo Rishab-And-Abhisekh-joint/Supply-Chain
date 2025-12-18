@@ -1,48 +1,26 @@
-
-'use client';
-
-import { useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
 import './globals.css';
-import { Toaster } from '@/components/ui/toaster';
-import AppLayout from '@/components/app-layout';
-import { ThemeProvider } from '@/components/theme-provider';
-import { AuthProvider } from '@/contexts/AuthContext';
-import { auth } from '@/lib/firebase';
+import { AuthProvider } from '@/contexts/auth-context';
+import { SidebarWrapper } from '@/components/sidebar-wrapper';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export const metadata: Metadata = {
+  title: 'Supply Chain Platform',
+  description: 'AI-powered supply chain management platform',
+};
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
-  const pathname = usePathname();
-
-  useEffect(() => {
-    // This code makes 'auth' available for debugging in the console
-    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-      (window as any).auth = auth;
-    }
-  }, []);
-
+}) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <title>SupplyChainAI</title>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      </head>
-      <body className="font-body antialiased">
+    <html lang="en">
+      <body className={inter.className}>
         <AuthProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <AppLayout>{children}</AppLayout>
-            <Toaster />
-          </ThemeProvider>
+          <SidebarWrapper>{children}</SidebarWrapper>
         </AuthProvider>
       </body>
     </html>
