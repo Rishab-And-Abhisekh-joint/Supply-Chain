@@ -238,14 +238,6 @@ export default function NotificationsPage() {
           ))
         )}
       </div>
-
-      {/* Data Source Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-medium text-blue-900 mb-2">📁 Load Your Own Data</h3>
-        <p className="text-sm text-blue-800">
-          Place your <code className="bg-blue-100 px-1 rounded">notifications.json</code> file in the <code className="bg-blue-100 px-1 rounded">/public/data/</code> folder.
-        </p>
-      </div>
     </div>
   );
 }

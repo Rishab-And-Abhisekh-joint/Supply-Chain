@@ -46,7 +46,7 @@ const demoAnalytics: AnalyticsData = {
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('6m');
+  const [timeRange, setTimeRange] = useState('1y');
 
   useEffect(() => {
     const loadData = async () => {
@@ -139,32 +139,42 @@ export default function AnalyticsPage() {
         {/* Revenue Chart */}
         <div className="bg-white rounded-xl border shadow-sm p-5">
           <h3 className="font-semibold text-gray-900 mb-4">Revenue Trend (₹ Lakhs)</h3>
-          <div className="h-48 flex items-end gap-4">
-            {analytics.revenue.map((item, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                <div 
-                  className="w-full bg-blue-500 rounded-t-md transition-all hover:bg-blue-600"
-                  style={{ height: `${(item.value / maxRevenue) * 100}%` }}
-                />
-                <span className="text-xs text-gray-500">{item.month}</span>
-              </div>
-            ))}
+          <div className="h-52 flex items-end justify-between gap-2 px-2">
+            {analytics.revenue.map((item, idx) => {
+              const heightPercent = (item.value / maxRevenue) * 100;
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="w-full flex flex-col justify-end" style={{ height: '180px' }}>
+                    <div 
+                      className="w-full bg-blue-500 rounded-t-md transition-all hover:bg-blue-600 min-h-[4px]"
+                      style={{ height: `${heightPercent}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500">{item.month}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Orders Chart */}
         <div className="bg-white rounded-xl border shadow-sm p-5">
           <h3 className="font-semibold text-gray-900 mb-4">Orders Trend</h3>
-          <div className="h-48 flex items-end gap-4">
-            {analytics.orders.map((item, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                <div 
-                  className="w-full bg-green-500 rounded-t-md transition-all hover:bg-green-600"
-                  style={{ height: `${(item.value / maxOrders) * 100}%` }}
-                />
-                <span className="text-xs text-gray-500">{item.month}</span>
-              </div>
-            ))}
+          <div className="h-52 flex items-end justify-between gap-2 px-2">
+            {analytics.orders.map((item, idx) => {
+              const heightPercent = (item.value / maxOrders) * 100;
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="w-full flex flex-col justify-end" style={{ height: '180px' }}>
+                    <div 
+                      className="w-full bg-green-500 rounded-t-md transition-all hover:bg-green-600 min-h-[4px]"
+                      style={{ height: `${heightPercent}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500">{item.month}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -212,14 +222,6 @@ export default function AnalyticsPage() {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* Data Source Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-medium text-blue-900 mb-2">📁 Load Your Own Data</h3>
-        <p className="text-sm text-blue-800">
-          Place your <code className="bg-blue-100 px-1 rounded">analytics.json</code> file in the <code className="bg-blue-100 px-1 rounded">/public/data/</code> folder.
-        </p>
       </div>
     </div>
   );
