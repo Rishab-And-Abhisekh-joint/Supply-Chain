@@ -1,217 +1,337 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import Link from "next/link";
-import dynamic from "next/dynamic";
-import { usePathname, useRouter } from "next/navigation";
-import { Bot, LayoutDashboard, Truck, TrendingUp, Package2, Loader2, User, Settings, LogOut } from "lucide-react";
-import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import { useAuth } from '@/contexts/AuthContext';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 
-import { Button } from "@/components/ui/button";
-import {
-  SidebarProvider,
-  useSidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-} from "@/components/ui/sidebar";
-import { ThemeToggle } from "@/components/theme-toggle";
+interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  role: string;
+  company?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
 
-const Sidebar = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.Sidebar), { ssr: false });
-const SidebarTrigger = dynamic(() => import("@/components/ui/sidebar").then((mod) => mod.SidebarTrigger), { ssr: false });
+interface AuthContextType {
+  user: User | null;
+  token: string | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signup: (userData: SignupData) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  updateUser: (userData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
+}
 
-const navItems = [
-  {
-    href: "/dashboard",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    href: "/forecasting",
-    label: "Demand Forecasting",
-    icon: TrendingUp,
-  },
-  {
-    href: "/operations",
-    label: "Operations Analysis",
-    icon: Bot,
-  },
-  {
-    href: "/logistics",
-    label: "Logistics Optimization",
-    icon: Truck,
-  },
-];
+interface SignupData {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  role: string;
+  company?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
 
-const pageTitles: { [key: string]: string } = {
-  "/dashboard": "Dashboard",
-  "/forecasting": "Demand Forecasting",
-  "/operations": "Operations Analysis",
-  "/logistics": "Logistics Optimization",
-  "/customer/inventory": "Customer Inventory",
-};
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const authRoutes = ['/customer/login', '/customer/signup'];
-const customerRoutes = ['/customer/inventory'];
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-function LayoutContent({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+// Public routes that don't require authentication
+const publicRoutes = ['/', '/login', '/signup', '/forgot-password'];
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth();
-  const { setOpen, open } = useSidebar();
+  const pathname = usePathname();
 
-  React.useEffect(() => {
-    if (authLoading) {
-      console.log("Auth Guard: Auth is loading, skipping checks.");
-      return;
+  const isAuthenticated = !!user && !!token;
+
+  // Helper function to create demo/local user and store in localStorage
+  const setLocalUser = useCallback((userData: User, authToken: string) => {
+    setUser(userData);
+    setToken(authToken);
+    localStorage.setItem('authToken', authToken);
+    localStorage.setItem('user', JSON.stringify(userData));
+  }, []);
+
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const storedToken = localStorage.getItem('authToken');
+      const storedUser = localStorage.getItem('user');
+
+      if (storedToken && storedUser) {
+        try {
+          // Verify token with backend
+          const response = await fetch(`${API_URL}/api/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${storedToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            setUser(data.user);
+            setToken(storedToken);
+          } else {
+            // Token invalid or API not available, use stored user for demo mode
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            setToken(storedToken);
+          }
+        } catch (error) {
+          // API unavailable, use stored data for demo mode
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+          setToken(storedToken);
+        }
+      }
+
+      setIsLoading(false);
     };
 
-    console.log("Auth Guard: Running checks. User:", user, "Pathname:", pathname);
-    const isAuthPage = authRoutes.includes(pathname);
-    const isCustomerPage = customerRoutes.some(route => pathname.startsWith(route));
+    checkAuth();
+  }, []);
 
-    if (user && isAuthPage) {
-      console.log("Auth Guard: User is on auth page, redirecting to /customer/inventory");
-      router.push('/customer/inventory');
-    } else if (!user && isCustomerPage) {
-      console.log("Auth Guard: User not logged in, on customer page, redirecting to /customer/login");
-      router.push('/customer/login');
+  // Handle routing based on auth state
+  useEffect(() => {
+    if (isLoading) return;
+
+    const isPublicRoute = publicRoutes.includes(pathname);
+
+    if (!isAuthenticated && !isPublicRoute) {
+      // Not authenticated and trying to access protected route
+      router.push('/signup');
+    } else if (isAuthenticated && (pathname === '/login' || pathname === '/signup' || pathname === '/')) {
+      // Authenticated and trying to access login/signup/home
+      router.push('/dashboard');
     }
-  }, [authLoading, user, pathname, router]);
+  }, [isAuthenticated, isLoading, pathname, router]);
 
-  const handleLogout = async () => {
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      console.log("Logout: Attempting to sign out.");
-      await signOut(auth);
-      console.log("Logout: Sign out successful.");
-      router.push('/customer/login');
+      // Try API login first
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setLocalUser(data.user, data.token);
+        router.push('/dashboard');
+        return { success: true };
+      }
+
+      // API returned an error - check if it's a "route not found" (backend not available)
+      // or an actual authentication error
+      let errorMessage = 'Login failed';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } catch {
+        // Could not parse error JSON
+      }
+
+      // If route not found (404) or server error (5xx), fall back to demo mode
+      if (response.status === 404 || response.status >= 500) {
+        return handleDemoLogin(email, password);
+      }
+
+      // For other errors (401, 403, etc.), return the error
+      return { success: false, error: errorMessage };
     } catch (error) {
-      console.error("Logout: Error signing out:", error);
+      // Network error - fall back to demo mode
+      return handleDemoLogin(email, password);
     }
   };
 
-  const isAuthPage = authRoutes.includes(pathname);
+  // Helper function to handle demo login
+  const handleDemoLogin = (email: string, password: string): { success: boolean; error?: string } => {
+    if (email === 'demo@example.com' && password === 'demo123') {
+      const demoUser: User = {
+        id: 'demo-user',
+        email: 'demo@example.com',
+        firstName: 'Demo',
+        lastName: 'User',
+        role: 'admin',
+        company: 'Demo Company',
+      };
+      const demoToken = `demo-token-${Date.now()}`;
+      
+      setLocalUser(demoUser, demoToken);
+      router.push('/dashboard');
+      return { success: true };
+    }
 
-  if (authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
-  }
+    return { 
+      success: false, 
+      error: 'Backend not available. Use demo@example.com / demo123 to try the demo.' 
+    };
+  };
 
-  if (isAuthPage) {
-    return <>{children}</>;
-  }
+  const signup = async (userData: SignupData): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
 
-  const sidebarContent = (
-    <>
-      <SidebarHeader>
-        <SidebarTrigger
-          variant="ghost"
-          size="default"
-          className="h-auto w-full justify-start gap-2 p-2 text-lg font-semibold hover:bg-sidebar-accent md:flex"
-        >
-          <Package2 className="h-6 w-6 text-primary" />
-          <span className="whitespace-nowrap group-data-[collapsible=icon]:hidden">SupplyChainAI</span>
-        </SidebarTrigger>
-        <div className="flex items-center gap-2 md:hidden">
-          <Package2 className="h-6 w-6 text-primary" />
-          <span className="whitespace-nowrap text-lg font-semibold">SupplyChainAI</span>
-        </div>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarMenu>
-          {navItems.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
-                <Link href={item.href}>
-                  <item.icon />
-                  <span>{item.label}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarContent>
-      <SidebarFooter className="mt-auto">
-         <SidebarMenu>
-            <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname.startsWith('/customer')} tooltip="Customer Area">
-                     <Link href={user ? "/customer/inventory" : "/customer/login"}>
-                        <User />
-                        <span>{user ? "Customer Panel" : "Customer Login"}</span>
-                    </Link>
-                </SidebarMenuButton>
-            </SidebarMenuItem>
-             <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Settings">
-                    <Settings />
-                    <span>Settings</span>
-                </SidebarMenuButton>
-            </SidebarMenuItem>
-            {user && (
-                 <SidebarMenuItem>
-                    <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
-                        <LogOut />
-                        <span>Logout</span>
-                    </SidebarMenuButton>
-                </SidebarMenuItem>
-            )}
-        </SidebarMenu>
-      </SidebarFooter>
-    </>
-  );
+      if (response.ok) {
+        const data = await response.json();
+        setLocalUser(data.user, data.token);
+        router.push('/dashboard');
+        return { success: true };
+      }
+
+      // Check if backend is not available (404 route not found)
+      if (response.status === 404 || response.status >= 500) {
+        // Create local user for demo purposes
+        return handleLocalSignup(userData);
+      }
+
+      // For other errors, try to get the error message
+      let errorMessage = 'Signup failed';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } catch {
+        // Could not parse error JSON
+      }
+
+      return { success: false, error: errorMessage };
+    } catch (error) {
+      // Network error - create local user for demo purposes
+      return handleLocalSignup(userData);
+    }
+  };
+
+  // Helper function to handle local/demo signup when backend is unavailable
+  const handleLocalSignup = (userData: SignupData): { success: boolean; error?: string } => {
+    const newUser: User = {
+      id: `user-${Date.now()}`,
+      email: userData.email,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      phone: userData.phone,
+      role: userData.role,
+      company: userData.company,
+      address: userData.address,
+      city: userData.city,
+      state: userData.state,
+      pincode: userData.pincode,
+    };
+    const newToken = `token-${Date.now()}`;
+    
+    setLocalUser(newUser, newToken);
+    router.push('/dashboard');
+    
+    console.log('=== LOCAL SIGNUP (Demo Mode) ===');
+    console.log('User:', newUser);
+    console.log('Backend API not available - using local storage');
+    console.log('================================');
+    
+    return { success: true };
+  };
+
+  const logout = useCallback(() => {
+    // Try to call logout API (ignore errors)
+    if (token) {
+      fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      }).catch(() => {
+        // Ignore errors
+      });
+    }
+
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    router.push('/login');
+  }, [token, router]);
+
+  const updateUser = async (userData: Partial<User>): Promise<{ success: boolean; error?: string }> => {
+    if (!user || !token) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/update`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        return { success: true };
+      }
+
+      // If backend not available, update locally
+      if (response.status === 404 || response.status >= 500) {
+        const updatedUser = { ...user, ...userData };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        return { success: true };
+      }
+
+      let errorMessage = 'Update failed';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } catch {
+        // Could not parse error JSON
+      }
+      return { success: false, error: errorMessage };
+    } catch (error) {
+      // Update locally for demo mode
+      const updatedUser = { ...user, ...userData };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      return { success: true };
+    }
+  };
 
   return (
-    <div 
-      className="flex min-h-screen w-full bg-muted/40"
-    >
-      <Sidebar 
-        collapsible="icon"
-        onMouseEnter={() => !open && setOpen(true)}
-        onMouseLeave={() => open && setOpen(false)}
-      >
-        {sidebarContent}
-      </Sidebar>
-      <div className="flex flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-          <div className="flex md:hidden">
-            <SidebarTrigger />
-          </div>
-          <h1 className="flex-1 text-xl font-semibold md:text-2xl">{pageTitles[pathname] || 'SupplyChainAI'}</h1>
-          <ThemeToggle />
-        </header>
-        <main className="flex-1 p-4 sm:px-6 sm:py-0">{children}</main>
-      </div>
-    </div>
+    <AuthContext.Provider value={{ user, token, isLoading, isAuthenticated, login, signup, logout, updateUser }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 
-
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-    const [isClient, setIsClient] = React.useState(false);
-
-    React.useEffect(() => {
-        setIsClient(true);
-    }, []);
-
-    if (!isClient) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            </div>
-        );
-    }
-    
-  return (
-    <SidebarProvider defaultOpen={false}>
-      <LayoutContent>{children}</LayoutContent>
-    </SidebarProvider>
-  );
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
