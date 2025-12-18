@@ -1,8 +1,5 @@
 'use client';
 
-// This page handles /notification route (singular)
-// Re-exports the same content as /notifications (plural)
-
 import React, { useState } from 'react';
 import { Bell, Package, Truck, AlertTriangle, CheckCircle, Clock, Trash2, Check } from 'lucide-react';
 
@@ -40,7 +37,7 @@ const colorMap = {
   system: 'bg-purple-100 text-purple-600',
 };
 
-export default function NotificationPage() {
+export default function NotificationsPage() {
   const [notifications, setNotifications] = useState(demoNotifications);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 

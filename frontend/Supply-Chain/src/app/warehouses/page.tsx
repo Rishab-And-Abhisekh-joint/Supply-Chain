@@ -1,8 +1,5 @@
 'use client';
 
-// This page handles /warehouse route (singular)
-// Re-exports the same content as /warehouses (plural)
-
 import React, { useState } from 'react';
 import { Warehouse, Package, TrendingUp, AlertTriangle, MapPin, Search, Plus } from 'lucide-react';
 
@@ -15,7 +12,7 @@ const demoWarehouses = [
   { id: 'WH-006', name: 'Hyderabad Logistics Center', location: 'Hyderabad, Telangana', capacity: 78, items: 11200, status: 'operational', manager: 'Venkat Reddy' },
 ];
 
-export default function WarehousePage() {
+export default function WarehousesPage() {
   const [warehouses] = useState(demoWarehouses);
   const [searchTerm, setSearchTerm] = useState('');
 
