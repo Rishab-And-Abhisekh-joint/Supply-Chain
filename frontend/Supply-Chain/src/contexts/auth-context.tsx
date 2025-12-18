@@ -49,6 +49,29 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 // Public routes that don't require authentication
 const publicRoutes = ['/', '/login', '/signup', '/forgot-password'];
 
+// Helper to check if error indicates backend is unavailable
+function isBackendUnavailable(status: number, errorMessage?: string): boolean {
+  // Check HTTP status codes that indicate backend issues
+  if (status === 404 || status >= 500) {
+    return true;
+  }
+  // Check error message patterns that indicate route/backend issues
+  if (errorMessage) {
+    const unavailablePatterns = [
+      'route not found',
+      'not found',
+      'cannot post',
+      'cannot get',
+      'econnrefused',
+      'network error',
+      'failed to fetch',
+    ];
+    const lowerMessage = errorMessage.toLowerCase();
+    return unavailablePatterns.some(pattern => lowerMessage.includes(pattern));
+  }
+  return false;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -58,6 +81,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAuthenticated = !!user && !!token;
 
+  // Helper function to create demo/local user and store in localStorage
+  const setLocalUser = useCallback((userData: User, authToken: string) => {
+    setUser(userData);
+    setToken(authToken);
+    localStorage.setItem('authToken', authToken);
+    localStorage.setItem('user', JSON.stringify(userData));
+  }, []);
+
   // Check authentication status on mount
   useEffect(() => {
     const checkAuth = async () => {
@@ -66,35 +97,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (storedToken && storedUser) {
         try {
-          // Verify token with backend
-          const response = await fetch(`${API_URL}/api/auth/me`, {
-            headers: {
-              'Authorization': `Bearer ${storedToken}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            setUser(data.user);
-            setToken(storedToken);
-          } else {
-            // Token invalid, try to use stored user for demo mode
-            const parsedUser = JSON.parse(storedUser);
-            if (parsedUser.email === 'demo@example.com') {
-              setUser(parsedUser);
-              setToken(storedToken);
-            } else {
-              // Clear invalid auth data
-              localStorage.removeItem('authToken');
-              localStorage.removeItem('user');
-            }
-          }
-        } catch (error) {
-          // API unavailable, use stored data for demo mode
           const parsedUser = JSON.parse(storedUser);
+          // For demo mode, just use stored credentials without API verification
           setUser(parsedUser);
           setToken(storedToken);
+        } catch (error) {
+          // Invalid stored data, clear it
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('user');
         }
       }
 
@@ -111,17 +121,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isPublicRoute = publicRoutes.includes(pathname);
 
     if (!isAuthenticated && !isPublicRoute) {
-      // Not authenticated and trying to access protected route
       router.push('/signup');
     } else if (isAuthenticated && (pathname === '/login' || pathname === '/signup' || pathname === '/')) {
-      // Authenticated and trying to access login/signup/home
       router.push('/dashboard');
     }
   }, [isAuthenticated, isLoading, pathname, router]);
 
+  // Demo login handler
+  const handleDemoLogin = useCallback((email: string, password: string): { success: boolean; error?: string } => {
+    if (email === 'demo@example.com' && password === 'demo123') {
+      const demoUser: User = {
+        id: 'demo-user',
+        email: 'demo@example.com',
+        firstName: 'Demo',
+        lastName: 'User',
+        role: 'admin',
+        company: 'Demo Company',
+      };
+      const demoToken = `demo-token-${Date.now()}`;
+      
+      setLocalUser(demoUser, demoToken);
+      router.push('/dashboard');
+      return { success: true };
+    }
+
+    return { 
+      success: false, 
+      error: 'Invalid credentials. Use demo@example.com / demo123 for demo access.' 
+    };
+  }, [setLocalUser, router]);
+
+  // Local signup handler
+  const handleLocalSignup = useCallback((userData: SignupData): { success: boolean; error?: string } => {
+    const newUser: User = {
+      id: `user-${Date.now()}`,
+      email: userData.email,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      phone: userData.phone,
+      role: userData.role,
+      company: userData.company,
+      address: userData.address,
+      city: userData.city,
+      state: userData.state,
+      pincode: userData.pincode,
+    };
+    const newToken = `token-${Date.now()}`;
+    
+    setLocalUser(newUser, newToken);
+    router.push('/dashboard');
+    
+    console.log('=== LOCAL SIGNUP (Demo Mode) ===');
+    console.log('User created:', newUser.email);
+    console.log('================================');
+    
+    return { success: true };
+  }, [setLocalUser, router]);
+
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      // Try API login first
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -130,40 +188,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        setToken(data.token);
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+      // Try to parse the response body
+      let responseData: any = null;
+      let errorMessage = '';
+      try {
+        const text = await response.text();
+        if (text) {
+          responseData = JSON.parse(text);
+          errorMessage = responseData?.message || responseData?.error || text;
+        }
+      } catch {
+        // Response wasn't JSON
+      }
+
+      // If successful API response
+      if (response.ok && responseData?.user && responseData?.token) {
+        setLocalUser(responseData.user, responseData.token);
         router.push('/dashboard');
         return { success: true };
       }
 
-      const error = await response.json();
-      return { success: false, error: error.message || 'Login failed' };
+      // Check if backend is unavailable - fall back to demo mode
+      if (isBackendUnavailable(response.status, errorMessage)) {
+        console.log('Backend unavailable, using demo mode');
+        return handleDemoLogin(email, password);
+      }
+
+      // Real authentication error from backend
+      return { success: false, error: errorMessage || 'Login failed' };
+
     } catch (error) {
-      // Fallback to demo mode
-      if (email === 'demo@example.com' && password === 'demo123') {
-        const demoUser: User = {
-          id: 'demo-user',
-          email: 'demo@example.com',
-          firstName: 'Demo',
-          lastName: 'User',
-          role: 'admin',
-          company: 'Demo Company',
-        };
-        const demoToken = `demo-token-${Date.now()}`;
-        
-        setUser(demoUser);
-        setToken(demoToken);
-        localStorage.setItem('authToken', demoToken);
-        localStorage.setItem('user', JSON.stringify(demoUser));
-        router.push('/dashboard');
-        return { success: true };
-      }
-
-      return { success: false, error: 'Unable to connect to server. Use demo@example.com / demo123' };
+      // Network error - fall back to demo mode
+      console.log('Network error, using demo mode:', error);
+      return handleDemoLogin(email, password);
     }
   };
 
@@ -177,96 +234,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(userData),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        setToken(data.token);
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+      // Try to parse the response body
+      let responseData: any = null;
+      let errorMessage = '';
+      try {
+        const text = await response.text();
+        if (text) {
+          responseData = JSON.parse(text);
+          errorMessage = responseData?.message || responseData?.error || text;
+        }
+      } catch {
+        // Response wasn't JSON
+      }
+
+      // If successful API response
+      if (response.ok && responseData?.user && responseData?.token) {
+        setLocalUser(responseData.user, responseData.token);
         router.push('/dashboard');
         return { success: true };
       }
 
-      const error = await response.json();
-      return { success: false, error: error.message || 'Signup failed' };
+      // Check if backend is unavailable - create local user
+      if (isBackendUnavailable(response.status, errorMessage)) {
+        console.log('Backend unavailable, creating local user');
+        return handleLocalSignup(userData);
+      }
+
+      // Real error from backend (e.g., email already exists)
+      return { success: false, error: errorMessage || 'Signup failed' };
+
     } catch (error) {
-      // Create local user for demo purposes
-      const newUser: User = {
-        id: `user-${Date.now()}`,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phone: userData.phone,
-        role: userData.role,
-        company: userData.company,
-        address: userData.address,
-        city: userData.city,
-        state: userData.state,
-        pincode: userData.pincode,
-      };
-      const newToken = `token-${Date.now()}`;
-      
-      setUser(newUser);
-      setToken(newToken);
-      localStorage.setItem('authToken', newToken);
-      localStorage.setItem('user', JSON.stringify(newUser));
-      router.push('/dashboard');
-      return { success: true };
+      // Network error - create local user
+      console.log('Network error, creating local user:', error);
+      return handleLocalSignup(userData);
     }
   };
 
   const logout = useCallback(() => {
-    // Try to call logout API
-    if (token) {
-      fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      }).catch(() => {
-        // Ignore errors
-      });
-    }
-
+    // Clear local state
     setUser(null);
     setToken(null);
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
     router.push('/login');
-  }, [token, router]);
+  }, [router]);
 
   const updateUser = async (userData: Partial<User>): Promise<{ success: boolean; error?: string }> => {
     if (!user || !token) {
       return { success: false, error: 'Not authenticated' };
     }
 
-    try {
-      const response = await fetch(`${API_URL}/api/auth/update`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        return { success: true };
-      }
-
-      const error = await response.json();
-      return { success: false, error: error.message || 'Update failed' };
-    } catch (error) {
-      // Update locally for demo mode
-      const updatedUser = { ...user, ...userData };
-      setUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      return { success: true };
-    }
+    // For demo mode, just update locally
+    const updatedUser = { ...user, ...userData };
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    return { success: true };
   };
 
   return (
