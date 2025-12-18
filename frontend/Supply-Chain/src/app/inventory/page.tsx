@@ -17,7 +17,7 @@ interface InventoryItem {
   status: 'in-stock' | 'low-stock' | 'out-of-stock';
 }
 
-// Demo data - replace with API call or import from data-service.ts
+// Demo data as fallback
 const demoInventory: InventoryItem[] = [
   { id: '1', sku: 'SKU001', name: 'Organic Wheat Flour', category: 'Grains', quantity: 2500, minStock: 500, maxStock: 5000, unitPrice: 45, warehouse: 'Delhi Central Hub', lastUpdated: '2024-12-18', status: 'in-stock' },
   { id: '2', sku: 'SKU002', name: 'Basmati Rice Premium', category: 'Grains', quantity: 1800, minStock: 400, maxStock: 4000, unitPrice: 85, warehouse: 'Noida Warehouse', lastUpdated: '2024-12-18', status: 'in-stock' },
@@ -29,30 +29,66 @@ const demoInventory: InventoryItem[] = [
   { id: '8', sku: 'SKU008', name: 'Chickpeas (Kabuli)', category: 'Pulses', quantity: 180, minStock: 200, maxStock: 1000, unitPrice: 110, warehouse: 'Delhi Central Hub', lastUpdated: '2024-12-18', status: 'low-stock' },
 ];
 
+// Helper to get stored data
+function getStoredData(key: string): any {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(`supplychain_data_${key}`);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function InventoryPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [dataSource, setDataSource] = useState<'local' | 'uploaded' | 'api'>('local');
 
   useEffect(() => {
-    // Try to load from local JSON first, fallback to demo data
     const loadData = async () => {
+      // First check localStorage (from Data Upload)
+      const storedData = getStoredData('inventory');
+      if (storedData && Array.isArray(storedData)) {
+        setInventory(storedData);
+        setDataSource('uploaded');
+        setLoading(false);
+        return;
+      }
+
+      // Then try public/data folder
       try {
         const response = await fetch('/data/inventory.json');
         if (response.ok) {
           const data = await response.json();
           setInventory(data);
-        } else {
-          setInventory(demoInventory);
+          setDataSource('local');
+          setLoading(false);
+          return;
         }
-      } catch {
-        setInventory(demoInventory);
-      }
+      } catch {}
+
+      // Fall back to demo data
+      setInventory(demoInventory);
+      setDataSource('local');
       setLoading(false);
     };
+
     loadData();
+
+    // Listen for data updates from upload component
+    const handleDataUpdate = (e: CustomEvent) => {
+      if (e.detail.key === 'inventory' && e.detail.data) {
+        setInventory(e.detail.data);
+        setDataSource('uploaded');
+      }
+    };
+
+    window.addEventListener('dataUpdated', handleDataUpdate as EventListener);
+    return () => window.removeEventListener('dataUpdated', handleDataUpdate as EventListener);
   }, []);
 
   const categories = ['all', ...new Set(inventory.map(item => item.category))];
@@ -123,6 +159,12 @@ export default function InventoryPage() {
           <p className="text-gray-500">Track and manage your stock levels</p>
         </div>
         <div className="flex gap-2">
+          {dataSource === 'uploaded' && (
+            <span className="flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
+              <CheckCircle className="w-4 h-4" />
+              Using uploaded data
+            </span>
+          )}
           <button className="flex items-center gap-2 px-4 py-2 text-gray-600 bg-white border rounded-lg hover:bg-gray-50">
             <Upload className="w-4 h-4" />
             Import
@@ -282,8 +324,7 @@ export default function InventoryPage() {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-medium text-blue-900 mb-2">📁 Load Your Own Data</h3>
         <p className="text-sm text-blue-800">
-          Place your <code className="bg-blue-100 px-1 rounded">inventory.json</code> file in the <code className="bg-blue-100 px-1 rounded">/public/data/</code> folder to load real data.
-          Or configure AWS S3 in your <code className="bg-blue-100 px-1 rounded">.env.local</code> file.
+          Go to <a href="/settings/data" className="underline font-medium">Settings → Data Management</a> to upload your own JSON files or connect to AWS S3.
         </p>
       </div>
     </div>
