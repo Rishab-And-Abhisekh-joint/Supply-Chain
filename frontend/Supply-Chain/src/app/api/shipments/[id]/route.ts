@@ -1,5 +1,5 @@
 // app/api/shipments/[id]/route.ts
-// Individual shipment operations - STANDALONE
+// Individual shipment operations - Next.js 15 compatible
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
@@ -23,12 +23,17 @@ async function queryOne<T = Record<string, unknown>>(text: string, params?: unkn
   return rows[0] || null;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id } = await params;
     const userEmail = getUserEmail(request);
+    
     const shipment = await queryOne(`
       SELECT * FROM shipments WHERE user_email = $1 AND (id::text = $2 OR order_number = $2)
-    `, [userEmail, params.id]);
+    `, [userEmail, id]);
 
     if (!shipment) {
       return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
@@ -41,8 +46,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id } = await params;
     const userEmail = getUserEmail(request);
     const body = await request.json();
 
@@ -60,7 +69,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
-    values.push(userEmail, params.id);
+    values.push(userEmail, id);
 
     const result = await queryOne<Record<string, unknown>>(`
       UPDATE shipments SET ${updates.join(', ')}
@@ -86,12 +95,17 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id } = await params;
     const userEmail = getUserEmail(request);
+    
     const result = await queryOne(`
       DELETE FROM shipments WHERE user_email = $1 AND id::text = $2 RETURNING id
-    `, [userEmail, params.id]);
+    `, [userEmail, id]);
 
     if (!result) {
       return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });

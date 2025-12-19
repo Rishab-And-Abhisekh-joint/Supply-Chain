@@ -1,5 +1,5 @@
 // app/api/orders/[id]/route.ts
-// API routes for individual order operations - NO external auth dependencies
+// API routes for individual order operations - Next.js 15 compatible
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
@@ -12,11 +12,8 @@ const pool = new Pool({
 
 // Helper to get user email from request headers
 function getUserEmail(request: NextRequest): string {
-  // Try to get from custom header (set by frontend)
   const userHeader = request.headers.get('X-User-Email');
   if (userHeader) return userHeader;
-  
-  // Fallback to demo user
   return 'demo@example.com';
 }
 
@@ -44,11 +41,11 @@ interface UpdateOrderRequest {
 // GET /api/orders/[id] - Get a single order
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: orderId } = await params;
     const userEmail = getUserEmail(request);
-    const orderId = params.id;
 
     const order = await queryOne(`
       SELECT 
@@ -87,11 +84,11 @@ export async function GET(
 // PUT /api/orders/[id] - Update an order
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: orderId } = await params;
     const userEmail = getUserEmail(request);
-    const orderId = params.id;
     const body: UpdateOrderRequest = await request.json();
 
     const updates: string[] = [];
@@ -177,11 +174,11 @@ export async function PUT(
 // DELETE /api/orders/[id] - Delete an order
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: orderId } = await params;
     const userEmail = getUserEmail(request);
-    const orderId = params.id;
 
     const result = await queryOne(`
       DELETE FROM orders
