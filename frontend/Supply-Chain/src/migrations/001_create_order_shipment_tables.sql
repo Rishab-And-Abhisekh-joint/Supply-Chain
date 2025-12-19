@@ -87,7 +87,34 @@ CREATE TABLE IF NOT EXISTS optimized_routes (
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+-- notifications table
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_email VARCHAR(255) NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  order_id VARCHAR(255),
+  order_number VARCHAR(100),
+  tracking_number VARCHAR(100),
+  read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
+-- pending_orders table  
+CREATE TABLE IF NOT EXISTS pending_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_email VARCHAR(255) NOT NULL,
+  product_id VARCHAR(100),
+  product_name VARCHAR(255) NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  recommendation TEXT,
+  source VARCHAR(100) DEFAULT 'manual',
+  status VARCHAR(50) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_routes_user_email ON optimized_routes(user_email);
 CREATE INDEX IF NOT EXISTS idx_routes_active ON optimized_routes(is_active);
@@ -168,6 +195,8 @@ SELECT
 FROM shipments s
 JOIN orders o ON s.order_id = o.id
 WHERE s.status != 'delivered';
+
+
 
 COMMENT ON TABLE orders IS 'Stores all orders placed through the supply chain system';
 COMMENT ON TABLE shipments IS 'Tracks shipment status and location for orders';

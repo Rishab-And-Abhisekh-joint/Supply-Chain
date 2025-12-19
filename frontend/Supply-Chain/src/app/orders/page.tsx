@@ -1,536 +1,268 @@
-"use client";
+// app/api/orders/place/route.ts
+// Place order + create shipment + create notification
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { 
-  Package, Search, Filter, Download, Eye, Edit, Trash2,
-  Truck, MapPin, Clock, DollarSign, RefreshCw, Loader2,
-  CheckCircle, XCircle, AlertCircle, User
-} from 'lucide-react';
-import { ordersApi, Order } from '@/lib/services/supplychain-api';
+import { NextRequest, NextResponse } from 'next/server';
 
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'All Statuses' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'processing', label: 'Processing' },
-  { value: 'shipped', label: 'Shipped' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'cancelled', label: 'Cancelled' },
+const AVAILABLE_TRUCKS = [
+  { id: 'TRK-001', vehicleNumber: 'MH-01-AB-1234', driverName: 'Rajesh Kumar', vehicleType: 'Heavy Truck' },
+  { id: 'TRK-002', vehicleNumber: 'DL-02-CD-5678', driverName: 'Amit Singh', vehicleType: 'Medium Truck' },
+  { id: 'TRK-003', vehicleNumber: 'KA-03-EF-9012', driverName: 'Suresh Patel', vehicleType: 'Heavy Truck' },
+  { id: 'TRK-004', vehicleNumber: 'TN-04-GH-3456', driverName: 'Vikram Rao', vehicleType: 'Delivery Van' },
+  { id: 'TRK-005', vehicleNumber: 'WB-05-IJ-7890', driverName: 'Manoj Verma', vehicleType: 'Heavy Truck' },
 ];
 
-const getStatusBadge = (status: string) => {
-  const styles: { [key: string]: string } = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    processing: 'bg-blue-100 text-blue-800',
-    shipped: 'bg-purple-100 text-purple-800',
-    delivered: 'bg-green-100 text-green-800',
-    cancelled: 'bg-red-100 text-red-800',
-  };
-  return styles[status] || 'bg-gray-100 text-gray-800';
-};
+function getUserEmail(request: NextRequest): string {
+  return request.headers.get('X-User-Email') || 'demo@example.com';
+}
 
-export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
+function generateOrderNumber(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = 'ORD-';
+  for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+  return result;
+}
 
-  // Fetch orders from API
-  const fetchOrders = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+function generateTrackingNumber(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = 'TRK-';
+  for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+  return result;
+}
 
-    try {
-      const result = await ordersApi.getAll();
-      
-      if (result.success && result.data) {
-        setOrders(result.data);
-        setFilteredOrders(result.data);
-      } else {
-        setError(result.error || 'Failed to fetch orders');
-      }
-    } catch (err: any) {
-      console.error('Error fetching orders:', err);
-      setError(err.message || 'Failed to fetch orders');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+function generateRouteCoordinates(fromLat: number, fromLng: number, toLat: number, toLng: number): Array<{ lat: number; lng: number }> {
+  const coordinates = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    coordinates.push({
+      lat: fromLat + (toLat - fromLat) * t + Math.sin(t * Math.PI) * 0.3,
+      lng: fromLng + (toLng - fromLng) * t,
+    });
+  }
+  return coordinates;
+}
 
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+export async function POST(request: NextRequest) {
+  try {
+    const userEmail = getUserEmail(request);
+    const body = await request.json();
 
-  // Filter orders based on search and status
-  useEffect(() => {
-    let filtered = [...orders];
-
-    // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(order => order.status === statusFilter);
+    // Validate items
+    const items = body.items || [];
+    if (items.length === 0) {
+      items.push({
+        productId: 'PROD-001',
+        productName: body.productName || 'Product',
+        quantity: body.quantity || 1,
+        unitPrice: body.unitPrice || 100,
+        total: body.totalAmount || 100,
+      });
     }
 
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(order =>
-        order.orderNumber?.toLowerCase().includes(query) ||
-        order.trackingNumber?.toLowerCase().includes(query) ||
-        order.customerName?.toLowerCase().includes(query) ||
-        order.shippingAddress?.toLowerCase().includes(query)
-      );
+    // Handle missing route info gracefully
+    const origin = body.origin || { name: 'Mumbai Warehouse', lat: 19.0760, lng: 72.8777 };
+    const destination = body.destination || { name: 'Pune Distribution', lat: 18.5204, lng: 73.8567 };
+    const selectedRoute = body.selectedRoute || {
+      id: 1,
+      from: origin.name,
+      to: destination.name,
+      distance: '150 km',
+      time: '3h',
+      savings: '12%',
+      fuelCost: 2500,
+    };
+
+    const orderNumber = generateOrderNumber();
+    const trackingNumber = generateTrackingNumber();
+    const truck = AVAILABLE_TRUCKS[Math.floor(Math.random() * AVAILABLE_TRUCKS.length)];
+    const now = new Date().toISOString();
+    const totalAmount = body.totalAmount || items.reduce((sum: number, item: { total?: number }) => sum + (item.total || 0), 0);
+
+    const routeCoordinates = selectedRoute.coordinates || 
+      generateRouteCoordinates(origin.lat, origin.lng, destination.lat, destination.lng);
+
+    // If no DATABASE_URL, return demo data
+    if (!process.env.DATABASE_URL) {
+      const demoOrder = {
+        id: `order-${Date.now()}`,
+        orderNumber,
+        trackingNumber,
+        customerId: body.customerId || `CUST-${Date.now()}`,
+        customerName: body.customerName || 'Self',
+        items,
+        totalAmount,
+        status: 'processing',
+        shippingAddress: body.shippingAddress || destination.name,
+        deliveryType: body.deliveryType || truck.vehicleType,
+        assignedVehicle: truck.id,
+        vehicleNumber: truck.vehicleNumber,
+        driverName: truck.driverName,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const demoShipment = {
+        id: `ship-${Date.now()}`,
+        orderId: demoOrder.id,
+        orderNumber,
+        vehicleId: truck.id,
+        vehicleNumber: truck.vehicleNumber,
+        driverName: truck.driverName,
+        vehicleType: truck.vehicleType,
+        status: 'picking_up',
+        origin,
+        destination,
+        currentLocation: origin,
+        route: { ...selectedRoute, coordinates: routeCoordinates },
+        eta: selectedRoute.time || '4-6 hours',
+        progress: 15,
+        distance: selectedRoute.distance,
+        savings: selectedRoute.savings,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          order: demoOrder,
+          shipment: demoShipment,
+          truck,
+          notification: {
+            type: 'order',
+            title: 'Order Placed Successfully',
+            message: `Order ${orderNumber} placed. Track with ${trackingNumber}`,
+          }
+        },
+        source: 'demo'
+      }, { status: 201 });
     }
 
-    setFilteredOrders(filtered);
-  }, [orders, searchQuery, statusFilter]);
+    // Database mode
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
 
-  // Update order status
-  const handleUpdateStatus = async (orderId: string, newStatus: string) => {
-    setIsUpdating(true);
-    try {
-      const result = await ordersApi.update(orderId, { status: newStatus });
-      
-      if (result.success) {
-        // Refresh orders
-        await fetchOrders();
-        if (selectedOrder?.id === orderId) {
-          setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
-        }
-      } else {
-        setError(result.error || 'Failed to update order');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to update order');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  // Delete order
-  const handleDeleteOrder = async (orderId: string) => {
-    if (!confirm('Are you sure you want to delete this order?')) return;
-
-    try {
-      const result = await ordersApi.delete(orderId);
-      
-      if (result.success) {
-        await fetchOrders();
-        setSelectedOrder(null);
-      } else {
-        setError(result.error || 'Failed to delete order');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete order');
-    }
-  };
-
-  // Export orders to CSV
-  const handleExportCSV = () => {
-    const headers = ['Order Number', 'Tracking', 'Customer', 'Items', 'Total', 'Status', 'Vehicle', 'Driver', 'Created'];
-    const rows = filteredOrders.map(order => [
-      order.orderNumber,
-      order.trackingNumber,
-      order.customerName,
-      order.items?.length || 0,
-      order.totalAmount,
-      order.status,
-      order.vehicleNumber || '-',
-      order.driverName || '-',
-      new Date(order.createdAt).toLocaleDateString()
+    // Create order
+    const orderResult = await pool.query(`
+      INSERT INTO orders (
+        order_number, tracking_number, user_email, customer_id, customer_name,
+        items, total_amount, status, shipping_address, delivery_type,
+        assigned_vehicle, vehicle_number, driver_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *
+    `, [
+      orderNumber, trackingNumber, userEmail,
+      body.customerId || `CUST-${Date.now()}`,
+      body.customerName || 'Self',
+      JSON.stringify(items),
+      totalAmount,
+      'processing',
+      body.shippingAddress || destination.name,
+      body.deliveryType || truck.vehicleType,
+      truck.id, truck.vehicleNumber, truck.driverName
     ]);
 
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
+    const order = orderResult.rows[0];
 
-  // Calculate stats
-  const stats = {
-    total: orders.length,
-    pending: orders.filter(o => o.status === 'pending').length,
-    processing: orders.filter(o => o.status === 'processing').length,
-    shipped: orders.filter(o => o.status === 'shipped').length,
-    delivered: orders.filter(o => o.status === 'delivered').length,
-    revenue: orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
-  };
+    // Create shipment
+    const shipmentResult = await pool.query(`
+      INSERT INTO shipments (
+        order_id, order_number, user_email, vehicle_id, vehicle_number,
+        driver_name, vehicle_type, status, origin_name, origin_lat, origin_lng,
+        destination_name, destination_lat, destination_lng,
+        current_lat, current_lng, route_data, eta, progress, distance, savings
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      RETURNING *
+    `, [
+      order.id, orderNumber, userEmail,
+      truck.id, truck.vehicleNumber, truck.driverName, truck.vehicleType,
+      'picking_up',
+      origin.name, origin.lat, origin.lng,
+      destination.name, destination.lat, destination.lng,
+      origin.lat, origin.lng,
+      JSON.stringify({ ...selectedRoute, coordinates: routeCoordinates }),
+      selectedRoute.time || '4-6 hours',
+      15, selectedRoute.distance, selectedRoute.savings
+    ]);
 
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Orders</h1>
-          <p className="text-muted-foreground">
-            Manage and track all orders from your PostgreSQL database
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={fetchOrders} disabled={isLoading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button variant="outline" onClick={handleExportCSV}>
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
-        </div>
-      </div>
+    // Create notification
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_email VARCHAR(255) NOT NULL,
+          type VARCHAR(50) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          order_id VARCHAR(255),
+          order_number VARCHAR(100),
+          tracking_number VARCHAR(100),
+          read BOOLEAN DEFAULT false,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
-      {/* Error Display */}
-      {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="p-4 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <p className="text-red-800">{error}</p>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="ml-auto"
-              onClick={() => setError(null)}
-            >
-              Dismiss
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      await pool.query(`
+        INSERT INTO notifications (user_email, type, title, message, order_id, order_number, tracking_number)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [
+        userEmail,
+        'order',
+        'Order Placed Successfully',
+        `Your order ${orderNumber} has been placed and is being processed. Track it with ${trackingNumber}`,
+        order.id,
+        orderNumber,
+        trackingNumber
+      ]);
+    } catch (notifError) {
+      console.error('Error creating notification:', notifError);
+      // Don't fail the order if notification fails
+    }
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Package className="w-5 h-5 text-blue-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Total</p>
-                <p className="text-xl font-bold">{stats.total}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-yellow-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Pending</p>
-                <p className="text-xl font-bold">{stats.pending}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <RefreshCw className="w-5 h-5 text-blue-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Processing</p>
-                <p className="text-xl font-bold">{stats.processing}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Truck className="w-5 h-5 text-purple-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Shipped</p>
-                <p className="text-xl font-bold">{stats.shipped}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Delivered</p>
-                <p className="text-xl font-bold">{stats.delivered}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-green-600" />
-              <div>
-                <p className="text-xs text-muted-foreground">Revenue</p>
-                <p className="text-xl font-bold">₹{stats.revenue.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+    await pool.end();
 
-      {/* Filters */}
-      <div className="flex gap-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search orders, tracking numbers, customers..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <Filter className="w-4 h-4 mr-2" />
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map(option => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    return NextResponse.json({
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          orderNumber: order.order_number,
+          trackingNumber: order.tracking_number,
+          status: order.status,
+          totalAmount: parseFloat(String(order.total_amount || 0)),
+          vehicleNumber: order.vehicle_number,
+          driverName: order.driver_name,
+          createdAt: order.created_at
+        },
+        shipment: {
+          id: shipmentResult.rows[0].id,
+          orderNumber: orderNumber,
+          vehicleNumber: truck.vehicleNumber,
+          driverName: truck.driverName,
+          status: 'picking_up',
+          progress: 15,
+          eta: selectedRoute.time || '4-6 hours'
+        },
+        truck,
+        notification: {
+          type: 'order',
+          title: 'Order Placed Successfully',
+          message: `Order ${orderNumber} placed. Track with ${trackingNumber}`,
+        }
+      }
+    }, { status: 201 });
 
-      {/* Orders Table */}
-      <Card>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center p-12">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center">
-              <Package className="w-12 h-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold">No orders found</h3>
-              <p className="text-muted-foreground">
-                {orders.length === 0 
-                  ? 'Place an order from Route Optimization to get started'
-                  : 'Try adjusting your search or filter criteria'
-                }
-              </p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order #</TableHead>
-                  <TableHead>Tracking</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Vehicle</TableHead>
-                  <TableHead>Driver</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredOrders.map((order) => (
-                  <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                    <TableCell className="font-mono text-sm">{order.trackingNumber}</TableCell>
-                    <TableCell>{order.customerName}</TableCell>
-                    <TableCell>{order.items?.length || 0} items</TableCell>
-                    <TableCell>₹{(order.totalAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell>
-                      <Badge className={getStatusBadge(order.status)}>
-                        {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {order.vehicleNumber ? (
-                        <span className="flex items-center gap-1">
-                          <Truck className="w-3 h-3" />
-                          {order.vehicleNumber}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {order.driverName ? (
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3" />
-                          {order.driverName}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => setSelectedOrder(order)}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => handleDeleteOrder(order.id)}
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Order Details Dialog */}
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              Order Details - {selectedOrder?.orderNumber}
-            </DialogTitle>
-            <DialogDescription>
-              Tracking: {selectedOrder?.trackingNumber}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedOrder && (
-            <div className="space-y-6">
-              {/* Order Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Customer</p>
-                  <p className="font-medium">{selectedOrder.customerName}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Amount</p>
-                  <p className="font-medium text-lg">₹{(selectedOrder.totalAmount || 0).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Delivery Type</p>
-                  <p className="font-medium">{selectedOrder.deliveryType || 'Standard'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Created</p>
-                  <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleString()}</p>
-                </div>
-              </div>
-
-              {/* Shipping Address */}
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Shipping Address</p>
-                <p className="font-medium flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  {selectedOrder.shippingAddress || 'Not specified'}
-                </p>
-              </div>
-
-              {/* Vehicle Info */}
-              {selectedOrder.vehicleNumber && (
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm font-medium text-blue-800 mb-2">Shipment Information</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-blue-600" />
-                      <div>
-                        <p className="text-xs text-blue-600">Vehicle</p>
-                        <p className="font-medium">{selectedOrder.vehicleNumber}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-blue-600" />
-                      <div>
-                        <p className="text-xs text-blue-600">Driver</p>
-                        <p className="font-medium">{selectedOrder.driverName}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Order Items */}
-              <div>
-                <p className="text-sm font-medium mb-2">Order Items</p>
-                <div className="border rounded-lg divide-y">
-                  {selectedOrder.items?.map((item, index) => (
-                    <div key={index} className="p-3 flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">{item.productName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {item.quantity} x ₹{item.unitPrice}
-                        </p>
-                      </div>
-                      <p className="font-medium">₹{item.total.toLocaleString()}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Status Update */}
-              <div className="flex items-center gap-4 pt-4 border-t">
-                <div className="flex-1">
-                  <p className="text-sm text-muted-foreground mb-1">Update Status</p>
-                  <Select 
-                    value={selectedOrder.status}
-                    onValueChange={(value) => handleUpdateStatus(selectedOrder.id, value)}
-                    disabled={isUpdating}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="processing">Processing</SelectItem>
-                      <SelectItem value="shipped">Shipped</SelectItem>
-                      <SelectItem value="delivered">Delivered</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Badge className={`${getStatusBadge(selectedOrder.status)} text-sm px-3 py-1`}>
-                  {selectedOrder.status}
-                </Badge>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+  } catch (error: unknown) {
+    console.error('Error placing order:', error);
+    const pgError = error as { code?: string; message?: string };
+    if (pgError.code === '23505') {
+      return NextResponse.json({ error: 'Order number already exists' }, { status: 409 });
+    }
+    return NextResponse.json({ 
+      error: 'Failed to place order',
+      details: pgError.message || 'Unknown error'
+    }, { status: 500 });
+  }
 }

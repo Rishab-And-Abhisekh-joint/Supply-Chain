@@ -1,41 +1,60 @@
 // lib/services/supplychain-api.ts
-// Supply Chain API Service - works with your custom AuthContext
+// Supply Chain API service with notifications and pending orders support
 
 const API_BASE = '/api';
 
-// Helper to get auth headers from localStorage
-function getAuthHeaders(): HeadersInit {
-  const headers: HeadersInit = { 'Content-Type': 'application/json' };
-  
+// Get user email from localStorage or return demo email
+function getUserEmail(): string {
   if (typeof window !== 'undefined') {
-    const user = localStorage.getItem('supplychain_user') || localStorage.getItem('user');
-    if (user) {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
       try {
-        const userData = JSON.parse(user);
-        headers['X-User-Email'] = userData.email || '';
-        headers['X-User-Id'] = userData.id || '';
-      } catch (e) { /* ignore */ }
+        const user = JSON.parse(userStr);
+        return user.email || 'demo@example.com';
+      } catch {
+        return 'demo@example.com';
+      }
     }
   }
-  return headers;
+  return 'demo@example.com';
 }
 
-// Generic fetch wrapper
-async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<{ success: boolean; data?: T; error?: string }> {
+// API request helper
+async function apiRequest<T>(
+  endpoint: string, 
+  options: RequestInit = {}
+): Promise<{ success: boolean; data?: T; error?: string; source?: string }> {
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, { headers: getAuthHeaders(), ...options });
-    const result = await response.json();
-    if (!response.ok) return { success: false, error: result.error || 'Request failed' };
-    return { success: true, data: result.data };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Network error';
-    return { success: false, error: msg };
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'X-User-Email': getUserEmail(),
+      ...options.headers,
+    };
+
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { 
+        success: false, 
+        error: data.error || `Request failed with status ${response.status}`,
+      };
+    }
+
+    return { success: true, data: data.data || data, source: data.source };
+  } catch (error: any) {
+    console.error(`API Error (${endpoint}):`, error);
+    return { success: false, error: error.message || 'Network error' };
   }
 }
 
-// ============================================
+// ============================================================================
 // TYPES
-// ============================================
+// ============================================================================
 
 export interface OrderItem {
   productId: string;
@@ -49,49 +68,49 @@ export interface Order {
   id: string;
   orderNumber: string;
   trackingNumber: string;
-  customerId: string;
+  customerId?: string;
   customerName: string;
   items: OrderItem[];
   totalAmount: number;
   status: string;
-  shippingAddress: string;
-  deliveryType: string;
+  shippingAddress?: string;
+  deliveryType?: string;
   assignedVehicle?: string;
   vehicleNumber?: string;
   driverName?: string;
+  notes?: string;
   createdAt: string;
-  updatedAt?: string;
+  updatedAt: string;
 }
 
-// FIXED: Added 'delivered' to status type
 export interface Shipment {
   id: string;
-  orderId: string;
+  orderId?: string;
   orderNumber: string;
-  vehicleId: string;
+  vehicleId?: string;
   vehicleNumber: string;
   driverName: string;
   vehicleType: string;
-  status: 'picking_up' | 'in_transit' | 'delivering' | 'delivered';
+  status: string;
   origin: { name: string; lat: number; lng: number };
   destination: { name: string; lat: number; lng: number };
   currentLocation: { lat: number; lng: number };
   route?: {
-    id: number;
-    from: string;
-    to: string;
-    distance: string;
-    time: string;
-    savings: string;
-    fuelCost: number;
-    coordinates: Array<{ lat: number; lng: number }>;
+    id?: number;
+    from?: string;
+    to?: string;
+    distance?: string;
+    time?: string;
+    savings?: string;
+    fuelCost?: number;
+    coordinates?: Array<{ lat: number; lng: number }>;
   };
   eta: string;
   progress: number;
   distance?: string;
   savings?: string;
   createdAt: string;
-  updatedAt?: string;
+  updatedAt: string;
 }
 
 export interface OptimizedRoute {
@@ -105,7 +124,7 @@ export interface OptimizedRoute {
   time: string;
   savings: string;
   fuelCost: number;
-  coordinates: Array<{ lat: number; lng: number }>;
+  coordinates?: Array<{ lat: number; lng: number }>;
   isActive: boolean;
   createdAt: string;
 }
@@ -115,13 +134,37 @@ export interface Truck {
   vehicleNumber: string;
   driverName: string;
   vehicleType: string;
-  capacityKg: number;
-  status: 'available' | 'in_use' | 'maintenance';
-  currentLocation?: { lat: number; lng: number };
+  capacityKg?: number;
+  status: string;
+  currentLocation?: { lat: number; lng: number } | null;
+}
+
+export interface Notification {
+  id: string;
+  type: 'order' | 'delivery' | 'alert' | 'system';
+  title: string;
+  message: string;
+  orderId?: string;
+  orderNumber?: string;
+  trackingNumber?: string;
+  timestamp: string;
+  read: boolean;
+}
+
+export interface PendingOrder {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  recommendation?: string;
+  source: string;
+  status: string;
+  createdAt: string;
 }
 
 export interface PlaceOrderData {
-  customerId?: string;
   customerName?: string;
   items: OrderItem[];
   totalAmount: number;
@@ -141,83 +184,199 @@ export interface PlaceOrderData {
   destination: { name: string; lat: number; lng: number };
 }
 
-export interface PlaceOrderResult {
-  order: Order;
-  shipment: Shipment;
-  truck: Truck;
-}
-
-// ============================================
+// ============================================================================
 // ORDERS API
-// ============================================
+// ============================================================================
 
 export const ordersApi = {
-  async getAll(params?: { status?: string; search?: string }): Promise<{ success: boolean; data?: Order[]; error?: string }> {
-    const searchParams = new URLSearchParams();
-    if (params?.status) searchParams.set('status', params.status);
-    if (params?.search) searchParams.set('search', params.search);
-    const query = searchParams.toString();
-    return apiFetch<Order[]>(`/orders${query ? `?${query}` : ''}`);
-  },
-  async getById(id: string) { return apiFetch<Order>(`/orders/${id}`); },
-  async create(data: Partial<Order>) { return apiFetch<Order>('/orders', { method: 'POST', body: JSON.stringify(data) }); },
-  async update(id: string, data: Partial<Order>) { return apiFetch<Order>(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async delete(id: string) { return apiFetch<void>(`/orders/${id}`, { method: 'DELETE' }); },
+  getAll: (status?: string) => 
+    apiRequest<Order[]>(`/orders${status ? `?status=${status}` : ''}`),
+  
+  getById: (id: string) => 
+    apiRequest<Order>(`/orders/${id}`),
+  
+  create: (data: Partial<Order>) => 
+    apiRequest<Order>('/orders', { method: 'POST', body: JSON.stringify(data) }),
+  
+  update: (id: string, data: Partial<Order>) => 
+    apiRequest<Order>(`/orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  
+  delete: (id: string) => 
+    apiRequest<{ message: string }>(`/orders/${id}`, { method: 'DELETE' }),
 };
 
-// ============================================
+// ============================================================================
 // SHIPMENTS API
-// ============================================
+// ============================================================================
 
 export const shipmentsApi = {
-  async getAll(params?: { status?: string; active?: boolean }): Promise<{ success: boolean; data?: Shipment[]; error?: string }> {
-    const searchParams = new URLSearchParams();
-    if (params?.status) searchParams.set('status', params.status);
-    if (params?.active) searchParams.set('active', 'true');
-    const query = searchParams.toString();
-    return apiFetch<Shipment[]>(`/shipments${query ? `?${query}` : ''}`);
+  getAll: (filters?: { status?: string; active?: boolean }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.active) params.set('active', 'true');
+    const query = params.toString();
+    return apiRequest<Shipment[]>(`/shipments${query ? `?${query}` : ''}`);
   },
-  async getById(id: string) { return apiFetch<Shipment>(`/shipments/${id}`); },
-  async create(data: { orderId: string; orderNumber: string; origin: { name: string; lat: number; lng: number }; destination: { name: string; lat: number; lng: number }; route?: Shipment['route'] }) {
-    return apiFetch<Shipment>('/shipments', { method: 'POST', body: JSON.stringify(data) });
-  },
-  async update(id: string, data: { status?: string; progress?: number; currentLat?: number; currentLng?: number; eta?: string }) {
-    return apiFetch<Shipment>(`/shipments/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-  },
-  async delete(id: string) { return apiFetch<void>(`/shipments/${id}`, { method: 'DELETE' }); },
+  
+  getById: (id: string) => 
+    apiRequest<Shipment>(`/shipments/${id}`),
+  
+  create: (data: Partial<Shipment>) => 
+    apiRequest<Shipment>('/shipments', { method: 'POST', body: JSON.stringify(data) }),
+  
+  update: (id: string, data: Partial<Shipment & { currentLat?: number; currentLng?: number }>) => 
+    apiRequest<Shipment>(`/shipments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  
+  delete: (id: string) => 
+    apiRequest<{ message: string }>(`/shipments/${id}`, { method: 'DELETE' }),
 };
 
-// ============================================
+// ============================================================================
 // ROUTES API
-// ============================================
+// ============================================================================
 
 export const routesApi = {
-  async getAll(activeOnly?: boolean): Promise<{ success: boolean; data?: OptimizedRoute[]; error?: string }> {
-    return apiFetch<OptimizedRoute[]>(`/routes${activeOnly ? '?active=true' : ''}`);
-  },
-  async create(data: { from: string; to: string; fromLat?: number; fromLng?: number; toLat?: number; toLng?: number; distance: string; time: string; savings: string; fuelCost: number }) {
-    return apiFetch<OptimizedRoute>('/routes', { method: 'POST', body: JSON.stringify(data) });
-  },
-  async deleteAll() { return apiFetch<void>('/routes', { method: 'DELETE' }); },
+  getAll: (activeOnly?: boolean) => 
+    apiRequest<OptimizedRoute[]>(`/routes${activeOnly ? '?active=true' : ''}`),
+  
+  create: (data: Partial<OptimizedRoute>) => 
+    apiRequest<OptimizedRoute>('/routes', { method: 'POST', body: JSON.stringify(data) }),
+  
+  deleteAll: () => 
+    apiRequest<{ message: string }>('/routes', { method: 'DELETE' }),
 };
 
-// ============================================
+// ============================================================================
 // TRUCKS API
-// ============================================
+// ============================================================================
 
 export const trucksApi = {
-  async getAll(status?: string): Promise<{ success: boolean; data?: Truck[]; error?: string }> {
-    return apiFetch<Truck[]>(`/trucks${status ? `?status=${status}` : ''}`);
-  },
+  getAll: (status?: string) => 
+    apiRequest<Truck[]>(`/trucks${status ? `?status=${status}` : ''}`),
+  
+  create: (data: Partial<Truck>) => 
+    apiRequest<Truck>('/trucks', { method: 'POST', body: JSON.stringify(data) }),
 };
 
-// ============================================
-// PLACE ORDER
-// ============================================
+// ============================================================================
+// NOTIFICATIONS API
+// ============================================================================
 
-export async function placeOrder(data: PlaceOrderData): Promise<{ success: boolean; data?: PlaceOrderResult; error?: string }> {
-  return apiFetch<PlaceOrderResult>('/orders/place', { method: 'POST', body: JSON.stringify(data) });
+export const notificationsApi = {
+  getAll: (unreadOnly?: boolean) => 
+    apiRequest<Notification[]>(`/notifications${unreadOnly ? '?unread=true' : ''}`),
+  
+  create: (data: { type: string; title: string; message: string; orderId?: string; orderNumber?: string; trackingNumber?: string }) => 
+    apiRequest<Notification>('/notifications', { method: 'POST', body: JSON.stringify(data) }),
+  
+  markAsRead: (notificationIds: string[]) => 
+    apiRequest<{ success: boolean }>('/notifications', { 
+      method: 'PUT', 
+      body: JSON.stringify({ notificationIds }) 
+    }),
+  
+  markAllAsRead: () => 
+    apiRequest<{ success: boolean }>('/notifications', { 
+      method: 'PUT', 
+      body: JSON.stringify({ markAllRead: true }) 
+    }),
+  
+  delete: (id: string) => 
+    apiRequest<{ success: boolean }>(`/notifications?id=${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
+// PENDING ORDERS API
+// ============================================================================
+
+export const pendingOrdersApi = {
+  getAll: (status?: string) => 
+    apiRequest<PendingOrder[]>(`/pending-orders${status ? `?status=${status}` : ''}`),
+  
+  create: (data: { 
+    productId?: string; 
+    productName: string; 
+    quantity: number; 
+    unitPrice: number; 
+    total?: number;
+    recommendation?: string;
+    source?: string;
+  }) => 
+    apiRequest<PendingOrder>('/pending-orders', { method: 'POST', body: JSON.stringify(data) }),
+  
+  updateStatus: (orderId: string, status: string) => 
+    apiRequest<PendingOrder>('/pending-orders', { 
+      method: 'PUT', 
+      body: JSON.stringify({ orderId, status }) 
+    }),
+  
+  delete: (id: string) => 
+    apiRequest<{ success: boolean }>(`/pending-orders?id=${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
+// PLACE ORDER (Combined order + shipment creation)
+// ============================================================================
+
+export async function placeOrder(data: PlaceOrderData): Promise<{
+  success: boolean;
+  data?: {
+    order: Order;
+    shipment: Shipment;
+    truck: Truck;
+    notification?: { type: string; title: string; message: string };
+  };
+  error?: string;
+}> {
+  return apiRequest('/orders/place', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
-// Default export
-export default { orders: ordersApi, shipments: shipmentsApi, routes: routesApi, trucks: trucksApi, placeOrder };
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+// Store pending order in sessionStorage (for page navigation)
+export function storePendingOrderInSession(order: {
+  productId?: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  recommendation?: string;
+}) {
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem('pendingOrder', JSON.stringify(order));
+  }
+}
+
+// Get pending order from sessionStorage
+export function getPendingOrderFromSession(): {
+  productId?: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  recommendation?: string;
+} | null {
+  if (typeof window !== 'undefined') {
+    const stored = sessionStorage.getItem('pendingOrder');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+// Clear pending order from sessionStorage
+export function clearPendingOrderFromSession() {
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('pendingOrder');
+  }
+}

@@ -1,65 +1,112 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { 
-  Truck, MapPin, Clock, DollarSign, Fuel, Package, 
-  ArrowRight, CheckCircle, AlertCircle, Loader2, Route,
-  Navigation, TrendingDown, Warehouse
+import {
+  MapPin,
+  Truck,
+  Clock,
+  DollarSign,
+  Fuel,
+  Leaf,
+  Navigation,
+  Package,
+  CheckCircle,
+  Loader2,
+  AlertCircle,
+  X,
+  Route,
+  RefreshCw,
+  Bell
 } from 'lucide-react';
-import { placeOrder, PlaceOrderData } from '@/lib/services/supplychain-api';
 
-// City coordinates for route mapping
-const CITY_COORDINATES: { [key: string]: { lat: number; lng: number } } = {
-  'Mumbai Warehouse': { lat: 19.0760, lng: 72.8777 },
-  'Pune Distribution': { lat: 18.5204, lng: 73.8567 },
-  'Delhi Hub': { lat: 28.7041, lng: 77.1025 },
-  'Jaipur Center': { lat: 26.9124, lng: 75.7873 },
-  'Chennai Port': { lat: 13.0827, lng: 80.2707 },
-  'Bangalore DC': { lat: 12.9716, lng: 77.5946 },
-  'Kolkata Depot': { lat: 22.5726, lng: 88.3639 },
-  'Bhubaneswar': { lat: 20.2961, lng: 85.8245 },
-  'Hyderabad': { lat: 17.3850, lng: 78.4867 },
-  'Ahmedabad': { lat: 23.0225, lng: 72.5714 },
-};
-
-// Sample routes for optimization
-const SAMPLE_ROUTES = [
-  { id: 1, from: 'Mumbai Warehouse', to: 'Pune Distribution', distance: '150 km', time: '3h', savings: '12%', fuelCost: 2500 },
-  { id: 2, from: 'Delhi Hub', to: 'Jaipur Center', distance: '280 km', time: '5h', savings: '18%', fuelCost: 4200 },
-  { id: 3, from: 'Chennai Port', to: 'Bangalore DC', distance: '350 km', time: '6h', savings: '15%', fuelCost: 5100 },
-  { id: 4, from: 'Kolkata Depot', to: 'Bhubaneswar', distance: '440 km', time: '8h', savings: '20%', fuelCost: 6500 },
-  { id: 5, from: 'Mumbai Warehouse', to: 'Ahmedabad', distance: '530 km', time: '9h', savings: '22%', fuelCost: 7800 },
-  { id: 6, from: 'Delhi Hub', to: 'Kolkata Depot', distance: '1450 km', time: '24h', savings: '25%', fuelCost: 18500 },
-];
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface PendingOrder {
+  id?: string;
   productId: string;
   productName: string;
   quantity: number;
   unitPrice: number;
   total: number;
   recommendation?: string;
+  source?: string;
+  status?: string;
+  createdAt?: string;
 }
 
-interface OptimizedRoute {
-  id: number;
+interface RouteStep {
+  instruction: string;
+  distance: string;
+  duration: string;
+  location: string;
+}
+
+interface RouteOption {
+  id: string;
+  name: string;
   from: string;
   to: string;
-  distance: string;
-  time: string;
-  savings: string;
-  fuelCost: number;
-  optimized?: boolean;
-  newDistance?: string;
-  newTime?: string;
-  newFuelCost?: number;
+  distance: number;
+  duration: number;
+  cost: number;
+  fuelConsumption: number;
+  co2Emissions: number;
+  isRecommended: boolean;
+  steps: RouteStep[];
 }
 
-// Safe number formatting helper - prevents toLocaleString errors
+interface OptimizationResult {
+  routes: RouteOption[];
+  selectedRoute: RouteOption | null;
+  origin: string;
+  destination: string;
+}
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const CITY_COORDINATES: { [key: string]: { lat: number; lng: number } } = {
+  'Delhi Central Hub': { lat: 28.7041, lng: 77.1025 },
+  'Noida Warehouse B': { lat: 28.5355, lng: 77.3910 },
+  'Mumbai Warehouse': { lat: 19.0760, lng: 72.8777 },
+  'Pune Distribution': { lat: 18.5204, lng: 73.8567 },
+  'Jaipur Center': { lat: 26.9124, lng: 75.7873 },
+  'Chennai Port': { lat: 13.0827, lng: 80.2707 },
+  'Bangalore DC': { lat: 12.9716, lng: 77.5946 },
+};
+
+const mockRouteSteps: RouteStep[] = [
+  { instruction: 'Start at Delhi Central Hub', distance: '0 km', duration: '0 min', location: 'Delhi Central Hub, Connaught Place' },
+  { instruction: 'Head east on NH44 toward Noida', distance: '12 km', duration: '18 min', location: 'NH44 Eastern Expressway' },
+  { instruction: 'Take exit toward Sector 62', distance: '8 km', duration: '12 min', location: 'Noida Expressway Exit' },
+  { instruction: 'Turn right onto Industrial Road', distance: '3 km', duration: '5 min', location: 'Sector 62 Industrial Area' },
+  { instruction: 'Continue to Warehouse B', distance: '1.5 km', duration: '3 min', location: 'Noida Distribution Center' },
+  { instruction: 'Arrive at destination', distance: '0 km', duration: '0 min', location: 'Noida Warehouse B, Gate 4' },
+];
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function getUserEmail(): string {
+  if (typeof window !== 'undefined') {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        return user.email || 'demo@example.com';
+      } catch {
+        return 'demo@example.com';
+      }
+    }
+  }
+  return 'demo@example.com';
+}
+
 function formatNumber(value: number | undefined | null): string {
   if (value === undefined || value === null || isNaN(value)) {
     return '0';
@@ -67,123 +114,224 @@ function formatNumber(value: number | undefined | null): string {
   return value.toLocaleString();
 }
 
-export default function LogisticsOptimizationPage() {
+function generateRouteCoordinates(fromLat: number, fromLng: number, toLat: number, toLng: number): Array<{ lat: number; lng: number }> {
+  const coordinates = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    coordinates.push({
+      lat: fromLat + (toLat - fromLat) * t + Math.sin(t * Math.PI) * 0.3,
+      lng: fromLng + (toLng - fromLng) * t,
+    });
+  }
+  return coordinates;
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+export default function LogisticsOptimization() {
   const router = useRouter();
-  const [routes, setRoutes] = useState<OptimizedRoute[]>(SAMPLE_ROUTES);
-  const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
-  const [selectedRoute, setSelectedRoute] = useState<OptimizedRoute | null>(null);
-  const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizationComplete, setOptimizationComplete] = useState(false);
-  const [showOrderConfirm, setShowOrderConfirm] = useState(false);
-  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
-  const [orderResult, setOrderResult] = useState<any>(null);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
+  const [selectedPendingOrder, setSelectedPendingOrder] = useState<PendingOrder | null>(null);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [isCreatingShipment, setIsCreatingShipment] = useState(false);
+  const [shipmentCreated, setShipmentCreated] = useState(false);
+  const [orderResult, setOrderResult] = useState<{
+    order?: { orderNumber?: string; trackingNumber?: string };
+    truck?: { vehicleNumber?: string; driverName?: string };
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load pending order from sessionStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem('pendingOrder');
-      if (stored) {
+  // Load pending orders from API and sessionStorage
+  const loadPendingOrders = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const allOrders: PendingOrder[] = [];
+      
+      // Check sessionStorage for order from demand forecasting
+      const storedOrder = sessionStorage.getItem('pendingOrder');
+      if (storedOrder) {
         try {
-          setPendingOrder(JSON.parse(stored));
+          const order = JSON.parse(storedOrder);
+          allOrders.push({
+            productId: order.productId || `PROD-${Date.now()}`,
+            productName: order.productName || order.product || 'Product',
+            quantity: order.quantity || 1,
+            unitPrice: order.unitPrice || 0,
+            total: order.total || 0,
+            recommendation: order.recommendation,
+            source: 'session',
+          });
         } catch (e) {
           console.error('Failed to parse pending order:', e);
         }
       }
+
+      // Fetch from API
+      try {
+        const response = await fetch('/api/pending-orders?status=pending', {
+          headers: {
+            'X-User-Email': getUserEmail(),
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            data.data.forEach((o: PendingOrder) => {
+              // Avoid duplicates - check by productId
+              const existingIndex = allOrders.findIndex(existing => existing.productId === o.productId);
+              if (existingIndex === -1) {
+                allOrders.push({
+                  id: o.id,
+                  productId: o.productId || `PROD-${Date.now()}`,
+                  productName: o.productName || 'Product',
+                  quantity: o.quantity || 1,
+                  unitPrice: o.unitPrice || 0,
+                  total: o.total || 0,
+                  recommendation: o.recommendation,
+                  source: o.source || 'api',
+                });
+              }
+            });
+          }
+        }
+      } catch (apiError) {
+        console.warn('API unavailable, using session data only');
+      }
+      
+      setPendingOrders(allOrders);
+      
+      // Auto-select first order
+      if (allOrders.length > 0) {
+        setSelectedPendingOrder(allOrders[0]);
+      }
+    } catch (err) {
+      console.error('Error loading pending orders:', err);
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
-  // Optimize all routes
-  const handleOptimizeRoutes = async () => {
-    setIsOptimizing(true);
-    setError(null);
-    
-    // Simulate optimization process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const optimizedRoutes = routes.map(route => {
-      const savingsPercent = parseInt(route.savings) / 100;
-      const distanceNum = parseInt(route.distance);
-      const timeNum = parseInt(route.time);
-      
-      return {
-        ...route,
-        optimized: true,
-        newDistance: `${Math.round(distanceNum * (1 - savingsPercent * 0.3))} km`,
-        newTime: `${Math.round(timeNum * (1 - savingsPercent * 0.2))}h`,
-        newFuelCost: Math.round(route.fuelCost * (1 - savingsPercent)),
-      };
-    });
-    
-    setRoutes(optimizedRoutes);
-    setIsOptimizing(false);
-    setOptimizationComplete(true);
-  };
+  useEffect(() => {
+    loadPendingOrders();
+  }, [loadPendingOrders]);
 
-  // Select a route for the order
-  const handleSelectRoute = (route: OptimizedRoute) => {
-    setSelectedRoute(route);
-  };
-
-  // Place the order
-  const handlePlaceOrder = async () => {
-    if (!pendingOrder || !selectedRoute) {
-      // If no pending order, select first optimized route
-      if (!selectedRoute && routes.length > 0) {
-        setSelectedRoute(routes.find(r => r.optimized) || routes[0]);
-      }
-      if (!pendingOrder) {
-        // Create a sample order for demo
-        setPendingOrder({
-          productId: 'PROD-001',
-          productName: 'Sample Product',
-          quantity: 100,
-          unitPrice: 50,
-          total: 5000,
-        });
-      }
-      setShowOrderConfirm(true);
-      return;
+  const clearPendingOrder = () => {
+    sessionStorage.removeItem('pendingOrder');
+    setPendingOrders(prev => prev.filter(o => o.source !== 'session'));
+    if (selectedPendingOrder?.source === 'session') {
+      setSelectedPendingOrder(pendingOrders.length > 1 ? pendingOrders[1] : null);
     }
-    setShowOrderConfirm(true);
   };
 
-  // Confirm and submit the order to PostgreSQL
-  const handleConfirmOrder = async () => {
-    setIsPlacingOrder(true);
+  const handleSelectPendingOrder = (order: PendingOrder) => {
+    setSelectedPendingOrder(order);
+  };
+
+  const handleFindOptimalRoute = () => {
+    setIsCalculating(true);
+    setError(null);
+
+    // Simulate API call for route optimization
+    setTimeout(() => {
+      const baseDistance = 24.5;
+      const routes: RouteOption[] = [
+        {
+          id: 'route-1',
+          name: 'Fastest Route',
+          from: 'Delhi Central Hub',
+          to: 'Noida Warehouse B',
+          distance: baseDistance,
+          duration: 38,
+          cost: 1250,
+          fuelConsumption: 3.2,
+          co2Emissions: 8.4,
+          isRecommended: true,
+          steps: mockRouteSteps,
+        },
+        {
+          id: 'route-2',
+          name: 'Economical Route',
+          from: 'Delhi Central Hub',
+          to: 'Noida Warehouse B',
+          distance: baseDistance + 5,
+          duration: 48,
+          cost: 980,
+          fuelConsumption: 2.8,
+          co2Emissions: 7.3,
+          isRecommended: false,
+          steps: mockRouteSteps.map(s => ({ ...s, duration: s.duration.replace(/\d+/, m => String(Math.round(parseInt(m) * 1.2))) })),
+        },
+        {
+          id: 'route-3',
+          name: 'Eco-Friendly Route',
+          from: 'Delhi Central Hub',
+          to: 'Noida Warehouse B',
+          distance: baseDistance + 3,
+          duration: 52,
+          cost: 1100,
+          fuelConsumption: 2.4,
+          co2Emissions: 6.2,
+          isRecommended: false,
+          steps: mockRouteSteps.map(s => ({ ...s, duration: s.duration.replace(/\d+/, m => String(Math.round(parseInt(m) * 1.3))) })),
+        },
+      ];
+
+      setOptimizationResult({
+        routes,
+        selectedRoute: routes[0],
+        origin: 'Delhi Central Hub',
+        destination: 'Noida Warehouse B',
+      });
+      setSelectedRouteId('route-1');
+      setIsCalculating(false);
+    }, 2000);
+  };
+
+  const handleSelectRoute = (routeId: string) => {
+    if (!optimizationResult) return;
+    const route = optimizationResult.routes.find(r => r.id === routeId);
+    if (route) {
+      setSelectedRouteId(routeId);
+      setOptimizationResult({
+        ...optimizationResult,
+        selectedRoute: route,
+      });
+    }
+  };
+
+  const handleCreateShipment = async () => {
+    setIsCreatingShipment(true);
     setError(null);
 
     try {
-      const routeToUse = selectedRoute || routes.find(r => r.optimized) || routes[0];
-      const orderToUse = pendingOrder || {
-        productId: 'PROD-001',
+      const routeToUse = optimizationResult?.selectedRoute || optimizationResult?.routes[0];
+      
+      // Create default order if none selected - FIXED: ensure productId is always string
+      const orderToUse: PendingOrder = selectedPendingOrder || {
+        productId: `PROD-${Date.now()}`,
         productName: 'Sample Product',
         quantity: 100,
         unitPrice: 50,
         total: 5000,
       };
 
-      // Get coordinates for origin and destination
-      const originCoords = CITY_COORDINATES[routeToUse.from] || { lat: 19.0760, lng: 72.8777 };
-      const destCoords = CITY_COORDINATES[routeToUse.to] || { lat: 18.5204, lng: 73.8567 };
+      if (!routeToUse) {
+        throw new Error('No route selected');
+      }
 
-      // Generate route coordinates for map display
-      const generateRouteCoordinates = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
-        const coords = [];
-        for (let i = 0; i <= 20; i++) {
-          const t = i / 20;
-          coords.push({
-            lat: from.lat + (to.lat - from.lat) * t + Math.sin(t * Math.PI) * 0.3,
-            lng: from.lng + (to.lng - from.lng) * t,
-          });
-        }
-        return coords;
-      };
+      const originCoords = CITY_COORDINATES[routeToUse.from] || { lat: 28.7041, lng: 77.1025 };
+      const destCoords = CITY_COORDINATES[routeToUse.to] || { lat: 28.5355, lng: 77.3910 };
 
-      const orderData: PlaceOrderData = {
+      const orderData = {
         customerName: 'Self',
         items: [{
-          productId: orderToUse.productId,
+          productId: orderToUse.productId, // Always string now
           productName: orderToUse.productName,
           quantity: orderToUse.quantity,
           unitPrice: orderToUse.unitPrice,
@@ -193,14 +341,14 @@ export default function LogisticsOptimizationPage() {
         shippingAddress: routeToUse.to,
         deliveryType: 'Heavy Truck',
         selectedRoute: {
-          id: routeToUse.id,
+          id: 1,
           from: routeToUse.from,
           to: routeToUse.to,
-          distance: routeToUse.newDistance || routeToUse.distance,
-          time: routeToUse.newTime || routeToUse.time,
-          savings: routeToUse.savings,
-          fuelCost: routeToUse.newFuelCost || routeToUse.fuelCost,
-          coordinates: generateRouteCoordinates(originCoords, destCoords),
+          distance: `${routeToUse.distance} km`,
+          time: `${routeToUse.duration} min`,
+          savings: '15%',
+          fuelCost: routeToUse.cost,
+          coordinates: generateRouteCoordinates(originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng),
         },
         origin: {
           name: routeToUse.from,
@@ -212,18 +360,41 @@ export default function LogisticsOptimizationPage() {
         },
       };
 
-      // Call the API to place order
-      const result = await placeOrder(orderData);
+      const response = await fetch('/api/orders/place', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': getUserEmail(),
+        },
+        body: JSON.stringify(orderData),
+      });
 
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to place order');
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || result.details || 'Failed to place order');
       }
 
       setOrderResult(result.data);
+      setShipmentCreated(true);
 
-      // Clear pending order from session
-      if (typeof window !== 'undefined') {
-        sessionStorage.removeItem('pendingOrder');
+      // Clear pending order
+      sessionStorage.removeItem('pendingOrder');
+      
+      // Update pending order status if it has an ID
+      if (selectedPendingOrder?.id) {
+        try {
+          await fetch('/api/pending-orders', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Email': getUserEmail(),
+            },
+            body: JSON.stringify({ orderId: selectedPendingOrder.id, status: 'completed' }),
+          });
+        } catch (e) {
+          console.warn('Could not update pending order status');
+        }
       }
 
       // Redirect to dashboard after 3 seconds
@@ -231,354 +402,361 @@ export default function LogisticsOptimizationPage() {
         router.push(`/dashboard?tracking=${result.data?.order?.trackingNumber || ''}`);
       }, 3000);
 
-    } catch (err: any) {
-      console.error('Error placing order:', err);
-      setError(err.message || 'Failed to place order. Please try again.');
+    } catch (err: unknown) {
+      console.error('Error creating shipment:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create shipment. Please try again.';
+      setError(errorMessage);
     } finally {
-      setIsPlacingOrder(false);
+      setIsCreatingShipment(false);
     }
   };
 
-  // Calculate total savings safely
-  const totalSavings = routes
-    .filter(r => r.optimized)
-    .reduce((sum, r) => {
-      const original = r.fuelCost || 0;
-      const optimized = r.newFuelCost || r.fuelCost || 0;
-      return sum + (original - optimized);
-    }, 0);
-
-  // Calculate average savings safely
-  const avgSavings = routes.length > 0 
-    ? Math.round(routes.reduce((sum, r) => sum + (parseInt(r.savings) || 0), 0) / routes.length)
-    : 0;
+  const selectedRoute = optimizationResult?.routes.find(r => r.id === selectedRouteId);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">Route Optimization</h1>
-          <p className="text-muted-foreground">
-            Optimize delivery routes and place orders with assigned trucks
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Logistics Optimization</h1>
+          <p className="text-gray-500">AI-powered route planning and delivery optimization</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            onClick={handleOptimizeRoutes} 
-            disabled={isOptimizing || optimizationComplete}
+          <button
+            onClick={loadPendingOrders}
+            disabled={isLoading}
+            className="px-4 py-2 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 flex items-center gap-2"
           >
-            {isOptimizing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Optimizing...
-              </>
-            ) : optimizationComplete ? (
-              <>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Optimized
-              </>
-            ) : (
-              <>
-                <Route className="w-4 h-4 mr-2" />
-                Optimize All Routes
-              </>
-            )}
-          </Button>
-          {optimizationComplete && (
-            <Button onClick={handlePlaceOrder} variant="default">
-              <Package className="w-4 h-4 mr-2" />
-              Place Order
-            </Button>
-          )}
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
       </div>
 
-      {/* Error Display */}
+      {/* Error Banner */}
       {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="p-4 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <p className="text-red-800">{error}</p>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="ml-auto"
-              onClick={() => setError(null)}
-            >
-              Dismiss
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+          <p className="text-red-800 flex-1">{error}</p>
+          <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 rounded">
+            <X className="w-4 h-4 text-red-600" />
+          </button>
+        </div>
       )}
 
-      {/* Order Success Banner */}
-      {orderResult && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-4">
-              <CheckCircle className="w-8 h-8 text-green-600 flex-shrink-0" />
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-green-800">Order Placed Successfully!</h3>
-                <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-green-600">Order Number:</span>
-                    <p className="font-semibold text-green-900">{orderResult?.order?.orderNumber || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <span className="text-green-600">Tracking:</span>
-                    <p className="font-semibold text-green-900">{orderResult?.order?.trackingNumber || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <span className="text-green-600">Vehicle:</span>
-                    <p className="font-semibold text-green-900">{orderResult?.truck?.vehicleNumber || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <span className="text-green-600">Driver:</span>
-                    <p className="font-semibold text-green-900">{orderResult?.truck?.driverName || 'N/A'}</p>
-                  </div>
-                </div>
-                <p className="mt-3 text-green-700">
-                  Redirecting to dashboard to track your shipment...
-                </p>
+      {/* Pending Orders Banner */}
+      {pendingOrders.length > 0 && !shipmentCreated && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Package className="w-5 h-5 text-blue-600" />
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 bg-blue-100 rounded-full">
-              <Route className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total Routes</p>
-              <p className="text-2xl font-bold">{routes.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 bg-green-100 rounded-full">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Optimized</p>
-              <p className="text-2xl font-bold">{routes.filter(r => r.optimized).length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 bg-yellow-100 rounded-full">
-              <DollarSign className="w-6 h-6 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Est. Savings</p>
-              <p className="text-2xl font-bold">₹{formatNumber(totalSavings)}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 bg-purple-100 rounded-full">
-              <TrendingDown className="w-6 h-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Avg. Savings</p>
-              <p className="text-2xl font-bold">{avgSavings}%</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Pending Order Card */}
-      {pendingOrder && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              Pending Order
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">{pendingOrder.productName || 'Product'}</p>
-                <p className="text-sm text-muted-foreground">
-                  Quantity: {pendingOrder.quantity || 0} | Unit Price: ₹{formatNumber(pendingOrder.unitPrice)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold">₹{formatNumber(pendingOrder.total)}</p>
-                <Badge variant="outline">{pendingOrder.recommendation || 'Ready for Shipment'}</Badge>
+                <h3 className="font-semibold text-blue-900">Pending Orders ({pendingOrders.length})</h3>
+                <p className="text-sm text-blue-700">Select an order to optimize route</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            {pendingOrders.some(o => o.source === 'session') && (
+              <button
+                onClick={clearPendingOrder}
+                className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg"
+                title="Clear session order"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+          
+          <div className="space-y-2">
+            {pendingOrders.map((order, index) => (
+              <div
+                key={order.id || index}
+                onClick={() => handleSelectPendingOrder(order)}
+                className={`p-3 rounded-lg cursor-pointer transition-all ${
+                  selectedPendingOrder?.productId === order.productId
+                    ? 'bg-blue-100 ring-2 ring-blue-500'
+                    : 'bg-white hover:bg-blue-50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-gray-900">{order.productName}</p>
+                    <p className="text-sm text-gray-500">
+                      Qty: {order.quantity} | ₹{formatNumber(order.unitPrice)}/unit
+                    </p>
+                    {order.source === 'session' && (
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                        From Forecast
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-gray-900">₹{formatNumber(order.total)}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      {/* Routes Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {routes.map((route) => (
-          <Card 
-            key={route.id}
-            className={`cursor-pointer transition-all hover:shadow-md ${
-              selectedRoute?.id === route.id 
-                ? 'ring-2 ring-green-500 border-green-500' 
-                : route.optimized 
-                  ? 'border-green-200' 
-                  : ''
-            }`}
-            onClick={() => route.optimized && handleSelectRoute(route)}
-          >
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Warehouse className="w-4 h-4" />
-                  Route {route.id}
-                </CardTitle>
-                {route.optimized && (
-                  <Badge className="bg-green-100 text-green-800">
-                    <CheckCircle className="w-3 h-3 mr-1" />
-                    Optimized
-                  </Badge>
-                )}
-                {selectedRoute?.id === route.id && (
-                  <Badge className="bg-blue-100 text-blue-800">
-                    Selected
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Route Path */}
-              <div className="flex items-center gap-2 text-sm">
-                <MapPin className="w-4 h-4 text-green-600" />
-                <span className="font-medium">{route.from}</span>
-                <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                <MapPin className="w-4 h-4 text-red-600" />
-                <span className="font-medium">{route.to}</span>
-              </div>
-
-              {/* Route Details */}
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div className="flex items-center gap-1">
-                  <Navigation className="w-4 h-4 text-muted-foreground" />
-                  <span className={route.optimized ? 'line-through text-muted-foreground' : ''}>
-                    {route.distance}
-                  </span>
-                  {route.optimized && route.newDistance && (
-                    <span className="text-green-600 font-medium">{route.newDistance}</span>
-                  )}
+      {/* Success State */}
+      {shipmentCreated ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="w-10 h-10 text-green-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-green-600 mb-2">Shipment Created Successfully!</h2>
+          <p className="text-gray-500 mb-4">Your order has been scheduled for delivery</p>
+          
+          {orderResult && (
+            <div className="bg-gray-50 rounded-lg p-4 max-w-md mx-auto mb-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-500">Order Number</p>
+                  <p className="font-semibold">{orderResult?.order?.orderNumber || 'N/A'}</p>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Clock className="w-4 h-4 text-muted-foreground" />
-                  <span className={route.optimized ? 'line-through text-muted-foreground' : ''}>
-                    {route.time}
-                  </span>
-                  {route.optimized && route.newTime && (
-                    <span className="text-green-600 font-medium">{route.newTime}</span>
-                  )}
+                <div>
+                  <p className="text-gray-500">Tracking</p>
+                  <p className="font-semibold">{orderResult?.order?.trackingNumber || 'N/A'}</p>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Fuel className="w-4 h-4 text-muted-foreground" />
-                  <span className={route.optimized ? 'line-through text-muted-foreground' : ''}>
-                    ₹{formatNumber(route.fuelCost)}
-                  </span>
-                  {route.optimized && route.newFuelCost !== undefined && (
-                    <span className="text-green-600 font-medium">₹{formatNumber(route.newFuelCost)}</span>
-                  )}
+                <div>
+                  <p className="text-gray-500">Vehicle</p>
+                  <p className="font-semibold">{orderResult?.truck?.vehicleNumber || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Driver</p>
+                  <p className="font-semibold">{orderResult?.truck?.driverName || 'N/A'}</p>
                 </div>
               </div>
-
-              {/* Savings Badge */}
-              <div className="flex justify-between items-center pt-2 border-t">
-                <span className="text-sm text-muted-foreground">Potential Savings</span>
-                <Badge variant="outline" className="bg-green-50 text-green-700">
-                  <TrendingDown className="w-3 h-3 mr-1" />
-                  {route.savings}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Order Confirmation Modal */}
-      {showOrderConfirm && !orderResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="w-5 h-5" />
-                Confirm Order
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {selectedRoute && (
-                <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-                  <p className="text-sm font-medium">Selected Route:</p>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-green-600" />
-                    <span>{selectedRoute.from}</span>
-                    <ArrowRight className="w-4 h-4" />
-                    <MapPin className="w-4 h-4 text-red-600" />
-                    <span>{selectedRoute.to}</span>
-                  </div>
-                  <div className="flex gap-4 text-sm text-muted-foreground">
-                    <span>{selectedRoute.newDistance || selectedRoute.distance}</span>
-                    <span>{selectedRoute.newTime || selectedRoute.time}</span>
-                    <span>₹{formatNumber(selectedRoute.newFuelCost || selectedRoute.fuelCost)}</span>
+            </div>
+          )}
+          
+          <div className="flex items-center justify-center gap-2 text-green-700">
+            <Bell className="w-4 h-4" />
+            <span>Notification sent! Redirecting to dashboard...</span>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Route Configuration */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Origin & Destination */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h2 className="font-semibold mb-4">Route Configuration</h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Origin</label>
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span className="font-medium">Delhi Central Hub</span>
                   </div>
                 </div>
-              )}
 
-              {pendingOrder && (
-                <div className="p-4 bg-blue-50 rounded-lg space-y-2">
-                  <p className="text-sm font-medium">Order Details:</p>
-                  <p>{pendingOrder.productName} x {pendingOrder.quantity}</p>
-                  <p className="text-lg font-bold">₹{formatNumber(pendingOrder.total)}</p>
+                <div className="flex justify-center">
+                  <div className="w-0.5 h-8 bg-gray-300"></div>
                 </div>
-              )}
 
-              <p className="text-sm text-muted-foreground">
-                A truck will be automatically assigned and you&apos;ll receive tracking information.
-                Order will be saved to your account database.
-              </p>
-
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  className="flex-1"
-                  onClick={() => setShowOrderConfirm(false)}
-                  disabled={isPlacingOrder}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  className="flex-1"
-                  onClick={handleConfirmOrder}
-                  disabled={isPlacingOrder}
-                >
-                  {isPlacingOrder ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Placing Order...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Confirm Order
-                    </>
-                  )}
-                </Button>
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Destination</label>
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                    <span className="font-medium">Noida Warehouse B</span>
+                  </div>
+                </div>
               </div>
-            </CardContent>
-          </Card>
+
+              {/* Find Route Button */}
+              <button
+                onClick={handleFindOptimalRoute}
+                disabled={isCalculating}
+                className={`w-full mt-6 py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-all ${
+                  isCalculating
+                    ? 'bg-blue-400 text-white cursor-wait'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {isCalculating ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Calculating Routes...
+                  </>
+                ) : (
+                  <>
+                    <Route className="w-5 h-5" />
+                    Find Optimal Route
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Route Options */}
+            {optimizationResult && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <h2 className="font-semibold mb-4">Available Routes</h2>
+                <div className="space-y-3">
+                  {optimizationResult.routes.map((route) => (
+                    <div
+                      key={route.id}
+                      onClick={() => handleSelectRoute(route.id)}
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        selectedRouteId === route.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-100 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium">{route.name}</span>
+                        {route.isRecommended && (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                            Recommended
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {route.distance} km
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {route.duration} min
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <DollarSign className="w-3 h-3" />
+                          ₹{formatNumber(route.cost)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Route Details & Map */}
+          <div className="lg:col-span-2 space-y-6">
+            {!optimizationResult ? (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                <Navigation className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-700 mb-2">No Route Selected</h3>
+                <p className="text-gray-500">
+                  Click &quot;Find Optimal Route&quot; to calculate the best delivery routes
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Route Summary */}
+                {selectedRoute && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                    <h2 className="font-semibold mb-4">Route Summary: {selectedRoute.name}</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <div className="text-center p-4 bg-gray-50 rounded-lg">
+                        <MapPin className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{selectedRoute.distance}</p>
+                        <p className="text-sm text-gray-500">km distance</p>
+                      </div>
+                      <div className="text-center p-4 bg-gray-50 rounded-lg">
+                        <Clock className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{selectedRoute.duration}</p>
+                        <p className="text-sm text-gray-500">min duration</p>
+                      </div>
+                      <div className="text-center p-4 bg-gray-50 rounded-lg">
+                        <DollarSign className="w-6 h-6 text-yellow-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">₹{formatNumber(selectedRoute.cost)}</p>
+                        <p className="text-sm text-gray-500">estimated cost</p>
+                      </div>
+                      <div className="text-center p-4 bg-gray-50 rounded-lg">
+                        <Fuel className="w-6 h-6 text-orange-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{selectedRoute.fuelConsumption}</p>
+                        <p className="text-sm text-gray-500">liters fuel</p>
+                      </div>
+                      <div className="text-center p-4 bg-gray-50 rounded-lg">
+                        <Leaf className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{selectedRoute.co2Emissions}</p>
+                        <p className="text-sm text-gray-500">kg CO₂</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Route Steps */}
+                {selectedRoute && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                    <h2 className="font-semibold mb-4">Route Instructions</h2>
+                    <div className="space-y-4">
+                      {selectedRoute.steps.map((step, index) => (
+                        <div key={index} className="flex gap-4">
+                          <div className="flex flex-col items-center">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                              index === 0 ? 'bg-green-500 text-white' :
+                              index === selectedRoute.steps.length - 1 ? 'bg-red-500 text-white' :
+                              'bg-blue-100 text-blue-600'
+                            }`}>
+                              {index + 1}
+                            </div>
+                            {index < selectedRoute.steps.length - 1 && (
+                              <div className="w-0.5 h-full bg-gray-200 mt-2"></div>
+                            )}
+                          </div>
+                          <div className="flex-1 pb-4">
+                            <p className="font-medium">{step.instruction}</p>
+                            <p className="text-sm text-gray-500">{step.location}</p>
+                            <div className="flex gap-4 mt-1 text-xs text-gray-400">
+                              <span>{step.distance}</span>
+                              <span>{step.duration}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Create Shipment Button */}
+                {selectedRoute && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold">Ready to create shipment?</h3>
+                        <p className="text-sm text-gray-500">
+                          Using {selectedRoute.name} - {selectedRoute.distance} km, {selectedRoute.duration} min
+                        </p>
+                        {selectedPendingOrder && (
+                          <p className="text-sm text-blue-600 mt-1">
+                            Order: {selectedPendingOrder.productName} x {selectedPendingOrder.quantity} = ₹{formatNumber(selectedPendingOrder.total)}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={handleCreateShipment}
+                        disabled={isCreatingShipment}
+                        className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 transition-all ${
+                          isCreatingShipment
+                            ? 'bg-green-400 text-white cursor-wait'
+                            : 'bg-green-600 text-white hover:bg-green-700'
+                        }`}
+                      >
+                        {isCreatingShipment ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <Truck className="w-5 h-5" />
+                            Confirm & Create Shipment
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
