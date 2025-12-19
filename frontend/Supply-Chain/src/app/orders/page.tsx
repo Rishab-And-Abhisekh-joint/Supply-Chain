@@ -1,268 +1,280 @@
-// app/api/orders/place/route.ts
-// Place order + create shipment + create notification
+'use client';
 
-import { NextRequest, NextResponse } from 'next/server';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Package, Truck, Clock, CheckCircle, AlertCircle, 
+  RefreshCw, Loader2, Eye, MapPin 
+} from 'lucide-react';
 
-const AVAILABLE_TRUCKS = [
-  { id: 'TRK-001', vehicleNumber: 'MH-01-AB-1234', driverName: 'Rajesh Kumar', vehicleType: 'Heavy Truck' },
-  { id: 'TRK-002', vehicleNumber: 'DL-02-CD-5678', driverName: 'Amit Singh', vehicleType: 'Medium Truck' },
-  { id: 'TRK-003', vehicleNumber: 'KA-03-EF-9012', driverName: 'Suresh Patel', vehicleType: 'Heavy Truck' },
-  { id: 'TRK-004', vehicleNumber: 'TN-04-GH-3456', driverName: 'Vikram Rao', vehicleType: 'Delivery Van' },
-  { id: 'TRK-005', vehicleNumber: 'WB-05-IJ-7890', driverName: 'Manoj Verma', vehicleType: 'Heavy Truck' },
-];
-
-function getUserEmail(request: NextRequest): string {
-  return request.headers.get('X-User-Email') || 'demo@example.com';
+interface OrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
 }
 
-function generateOrderNumber(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = 'ORD-';
-  for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
-  return result;
+interface Order {
+  id: string;
+  orderNumber: string;
+  trackingNumber: string;
+  customerName: string;
+  items: OrderItem[];
+  totalAmount: number;
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  shippingAddress: string;
+  deliveryType: string;
+  vehicleNumber?: string;
+  driverName?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-function generateTrackingNumber(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = 'TRK-';
-  for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
-  return result;
-}
+const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  processing: { label: 'Processing', color: 'bg-blue-100 text-blue-800', icon: Package },
+  shipped: { label: 'Shipped', color: 'bg-purple-100 text-purple-800', icon: Truck },
+  delivered: { label: 'Delivered', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+  cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-800', icon: AlertCircle },
+};
 
-function generateRouteCoordinates(fromLat: number, fromLng: number, toLat: number, toLng: number): Array<{ lat: number; lng: number }> {
-  const coordinates = [];
-  for (let i = 0; i <= 20; i++) {
-    const t = i / 20;
-    coordinates.push({
-      lat: fromLat + (toLat - fromLat) * t + Math.sin(t * Math.PI) * 0.3,
-      lng: fromLng + (toLng - fromLng) * t,
-    });
+function getUserEmail(): string {
+  if (typeof window !== 'undefined') {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        return user.email || 'demo@example.com';
+      } catch {
+        return 'demo@example.com';
+      }
+    }
   }
-  return coordinates;
+  return 'demo@example.com';
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const userEmail = getUserEmail(request);
-    const body = await request.json();
+function formatCurrency(amount: number): string {
+  return `₹${amount.toLocaleString()}`;
+}
 
-    // Validate items
-    const items = body.items || [];
-    if (items.length === 0) {
-      items.push({
-        productId: 'PROD-001',
-        productName: body.productName || 'Product',
-        quantity: body.quantity || 1,
-        unitPrice: body.unitPrice || 100,
-        total: body.totalAmount || 100,
-      });
-    }
+function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('en-IN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
-    // Handle missing route info gracefully
-    const origin = body.origin || { name: 'Mumbai Warehouse', lat: 19.0760, lng: 72.8777 };
-    const destination = body.destination || { name: 'Pune Distribution', lat: 18.5204, lng: 73.8567 };
-    const selectedRoute = body.selectedRoute || {
-      id: 1,
-      from: origin.name,
-      to: destination.name,
-      distance: '150 km',
-      time: '3h',
-      savings: '12%',
-      fuelCost: 2500,
-    };
+export default function OrdersPage() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
 
-    const orderNumber = generateOrderNumber();
-    const trackingNumber = generateTrackingNumber();
-    const truck = AVAILABLE_TRUCKS[Math.floor(Math.random() * AVAILABLE_TRUCKS.length)];
-    const now = new Date().toISOString();
-    const totalAmount = body.totalAmount || items.reduce((sum: number, item: { total?: number }) => sum + (item.total || 0), 0);
-
-    const routeCoordinates = selectedRoute.coordinates || 
-      generateRouteCoordinates(origin.lat, origin.lng, destination.lat, destination.lng);
-
-    // If no DATABASE_URL, return demo data
-    if (!process.env.DATABASE_URL) {
-      const demoOrder = {
-        id: `order-${Date.now()}`,
-        orderNumber,
-        trackingNumber,
-        customerId: body.customerId || `CUST-${Date.now()}`,
-        customerName: body.customerName || 'Self',
-        items,
-        totalAmount,
-        status: 'processing',
-        shippingAddress: body.shippingAddress || destination.name,
-        deliveryType: body.deliveryType || truck.vehicleType,
-        assignedVehicle: truck.id,
-        vehicleNumber: truck.vehicleNumber,
-        driverName: truck.driverName,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const demoShipment = {
-        id: `ship-${Date.now()}`,
-        orderId: demoOrder.id,
-        orderNumber,
-        vehicleId: truck.id,
-        vehicleNumber: truck.vehicleNumber,
-        driverName: truck.driverName,
-        vehicleType: truck.vehicleType,
-        status: 'picking_up',
-        origin,
-        destination,
-        currentLocation: origin,
-        route: { ...selectedRoute, coordinates: routeCoordinates },
-        eta: selectedRoute.time || '4-6 hours',
-        progress: 15,
-        distance: selectedRoute.distance,
-        savings: selectedRoute.savings,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          order: demoOrder,
-          shipment: demoShipment,
-          truck,
-          notification: {
-            type: 'order',
-            title: 'Order Placed Successfully',
-            message: `Order ${orderNumber} placed. Track with ${trackingNumber}`,
-          }
-        },
-        source: 'demo'
-      }, { status: 201 });
-    }
-
-    // Database mode
-    const { Pool } = await import('pg');
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    });
-
-    // Create order
-    const orderResult = await pool.query(`
-      INSERT INTO orders (
-        order_number, tracking_number, user_email, customer_id, customer_name,
-        items, total_amount, status, shipping_address, delivery_type,
-        assigned_vehicle, vehicle_number, driver_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING *
-    `, [
-      orderNumber, trackingNumber, userEmail,
-      body.customerId || `CUST-${Date.now()}`,
-      body.customerName || 'Self',
-      JSON.stringify(items),
-      totalAmount,
-      'processing',
-      body.shippingAddress || destination.name,
-      body.deliveryType || truck.vehicleType,
-      truck.id, truck.vehicleNumber, truck.driverName
-    ]);
-
-    const order = orderResult.rows[0];
-
-    // Create shipment
-    const shipmentResult = await pool.query(`
-      INSERT INTO shipments (
-        order_id, order_number, user_email, vehicle_id, vehicle_number,
-        driver_name, vehicle_type, status, origin_name, origin_lat, origin_lng,
-        destination_name, destination_lat, destination_lng,
-        current_lat, current_lng, route_data, eta, progress, distance, savings
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-      RETURNING *
-    `, [
-      order.id, orderNumber, userEmail,
-      truck.id, truck.vehicleNumber, truck.driverName, truck.vehicleType,
-      'picking_up',
-      origin.name, origin.lat, origin.lng,
-      destination.name, destination.lat, destination.lng,
-      origin.lat, origin.lng,
-      JSON.stringify({ ...selectedRoute, coordinates: routeCoordinates }),
-      selectedRoute.time || '4-6 hours',
-      15, selectedRoute.distance, selectedRoute.savings
-    ]);
-
-    // Create notification
+  const fetchOrders = useCallback(async () => {
+    setIsLoading(true);
     try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS notifications (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_email VARCHAR(255) NOT NULL,
-          type VARCHAR(50) NOT NULL,
-          title VARCHAR(255) NOT NULL,
-          message TEXT NOT NULL,
-          order_id VARCHAR(255),
-          order_number VARCHAR(100),
-          tracking_number VARCHAR(100),
-          read BOOLEAN DEFAULT false,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      await pool.query(`
-        INSERT INTO notifications (user_email, type, title, message, order_id, order_number, tracking_number)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [
-        userEmail,
-        'order',
-        'Order Placed Successfully',
-        `Your order ${orderNumber} has been placed and is being processed. Track it with ${trackingNumber}`,
-        order.id,
-        orderNumber,
-        trackingNumber
-      ]);
-    } catch (notifError) {
-      console.error('Error creating notification:', notifError);
-      // Don't fail the order if notification fails
-    }
-
-    await pool.end();
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        order: {
-          id: order.id,
-          orderNumber: order.order_number,
-          trackingNumber: order.tracking_number,
-          status: order.status,
-          totalAmount: parseFloat(String(order.total_amount || 0)),
-          vehicleNumber: order.vehicle_number,
-          driverName: order.driver_name,
-          createdAt: order.created_at
+      const url = filter === 'all' ? '/api/orders' : `/api/orders?status=${filter}`;
+      const response = await fetch(url, {
+        headers: {
+          'X-User-Email': getUserEmail(),
         },
-        shipment: {
-          id: shipmentResult.rows[0].id,
-          orderNumber: orderNumber,
-          vehicleNumber: truck.vehicleNumber,
-          driverName: truck.driverName,
-          status: 'picking_up',
-          progress: 15,
-          eta: selectedRoute.time || '4-6 hours'
-        },
-        truck,
-        notification: {
-          type: 'order',
-          title: 'Order Placed Successfully',
-          message: `Order ${orderNumber} placed. Track with ${trackingNumber}`,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setOrders(data.data);
         }
       }
-    }, { status: 201 });
-
-  } catch (error: unknown) {
-    console.error('Error placing order:', error);
-    const pgError = error as { code?: string; message?: string };
-    if (pgError.code === '23505') {
-      return NextResponse.json({ error: 'Order number already exists' }, { status: 409 });
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+    } finally {
+      setIsLoading(false);
     }
-    return NextResponse.json({ 
-      error: 'Failed to place order',
-      details: pgError.message || 'Unknown error'
-    }, { status: 500 });
+  }, [filter]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  const filteredOrders = orders;
+
+  const orderStats = {
+    total: orders.length,
+    pending: orders.filter(o => o.status === 'pending').length,
+    processing: orders.filter(o => o.status === 'processing').length,
+    shipped: orders.filter(o => o.status === 'shipped').length,
+    delivered: orders.filter(o => o.status === 'delivered').length,
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-100px)]">
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      </div>
+    );
   }
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
+          <p className="text-gray-500">Manage and track all your orders</p>
+        </div>
+        <Button variant="outline" onClick={fetchOrders}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilter('all')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Package className="w-5 h-5 text-gray-500" />
+              <span className="text-sm text-gray-500">Total</span>
+            </div>
+            <p className="text-2xl font-bold">{orderStats.total}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilter('pending')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Clock className="w-5 h-5 text-yellow-500" />
+              <span className="text-sm text-gray-500">Pending</span>
+            </div>
+            <p className="text-2xl font-bold">{orderStats.pending}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilter('processing')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Package className="w-5 h-5 text-blue-500" />
+              <span className="text-sm text-gray-500">Processing</span>
+            </div>
+            <p className="text-2xl font-bold">{orderStats.processing}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilter('shipped')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Truck className="w-5 h-5 text-purple-500" />
+              <span className="text-sm text-gray-500">Shipped</span>
+            </div>
+            <p className="text-2xl font-bold">{orderStats.shipped}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilter('delivered')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <span className="text-sm text-gray-500">Delivered</span>
+            </div>
+            <p className="text-2xl font-bold">{orderStats.delivered}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {['all', 'pending', 'processing', 'shipped', 'delivered'].map((status) => (
+          <Button
+            key={status}
+            variant={filter === status ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter(status)}
+          >
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      {/* Orders List */}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {filter === 'all' ? 'All Orders' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Orders`}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {filteredOrders.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <p>No orders found</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredOrders.map((order) => {
+                const statusInfo = statusConfig[order.status] || statusConfig.pending;
+                const StatusIcon = statusInfo.icon;
+                return (
+                  <div
+                    key={order.id}
+                    className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="font-semibold text-lg">{order.orderNumber}</h3>
+                          <Badge className={statusInfo.color}>
+                            <StatusIcon className="w-3 h-3 mr-1" />
+                            {statusInfo.label}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-gray-500 space-y-1">
+                          <p>Tracking: <span className="font-medium text-blue-600">{order.trackingNumber}</span></p>
+                          <p>Customer: {order.customerName}</p>
+                          <div className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3" />
+                            <span>{order.shippingAddress}</span>
+                          </div>
+                        </div>
+                        {order.items && order.items.length > 0 && (
+                          <div className="mt-2 text-sm">
+                            <span className="text-gray-500">Items: </span>
+                            {order.items.map((item, i) => (
+                              <span key={i}>
+                                {item.productName} x{item.quantity}
+                                {i < order.items.length - 1 ? ', ' : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-gray-900">
+                          {formatCurrency(order.totalAmount)}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {formatDate(order.createdAt)}
+                        </p>
+                        {order.vehicleNumber && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            <Truck className="w-3 h-3 inline mr-1" />
+                            {order.vehicleNumber}
+                          </p>
+                        )}
+                        <Button variant="outline" size="sm" className="mt-2">
+                          <Eye className="w-4 h-4 mr-1" />
+                          View Details
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
