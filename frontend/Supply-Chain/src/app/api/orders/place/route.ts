@@ -1,5 +1,6 @@
 // app/api/orders/place/route.ts
 // Place order + create shipment + create notification
+// FIXED: Better error handling and table creation
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -42,11 +43,15 @@ function generateRouteCoordinates(fromLat: number, fromLng: number, toLat: numbe
 }
 
 export async function POST(request: NextRequest) {
+  let pool = null;
+  
   try {
     const userEmail = getUserEmail(request);
     const body = await request.json();
 
-    // Validate items
+    console.log('Order place request received:', { userEmail, hasItems: !!body.items });
+
+    // Validate and prepare items
     const items = body.items || [];
     if (items.length === 0) {
       items.push({
@@ -82,6 +87,8 @@ export async function POST(request: NextRequest) {
 
     // If no DATABASE_URL, return demo data
     if (!process.env.DATABASE_URL) {
+      console.log('No DATABASE_URL, returning demo data');
+      
       const demoOrder = {
         id: `order-${Date.now()}`,
         orderNumber,
@@ -138,13 +145,77 @@ export async function POST(request: NextRequest) {
     }
 
     // Database mode
+    console.log('Connecting to database...');
+    
     const { Pool } = await import('pg');
-    const pool = new Pool({
+    pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000,
     });
 
+    // Test connection
+    await pool.query('SELECT 1');
+    console.log('Database connected successfully');
+
+    // Ensure orders table exists with all required columns
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        order_number VARCHAR(100) UNIQUE NOT NULL,
+        tracking_number VARCHAR(100) UNIQUE NOT NULL,
+        user_email VARCHAR(255) NOT NULL,
+        customer_id VARCHAR(100),
+        customer_name VARCHAR(255),
+        items JSONB DEFAULT '[]',
+        total_amount DECIMAL(12,2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'pending',
+        shipping_address TEXT,
+        delivery_type VARCHAR(100),
+        assigned_vehicle VARCHAR(100),
+        vehicle_number VARCHAR(50),
+        driver_name VARCHAR(255),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Orders table ready');
+
+    // Ensure shipments table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS shipments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+        order_number VARCHAR(100),
+        user_email VARCHAR(255) NOT NULL,
+        vehicle_id VARCHAR(100),
+        vehicle_number VARCHAR(50),
+        driver_name VARCHAR(255),
+        vehicle_type VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'picking_up',
+        origin_name VARCHAR(255),
+        origin_lat DECIMAL(10,6),
+        origin_lng DECIMAL(10,6),
+        destination_name VARCHAR(255),
+        destination_lat DECIMAL(10,6),
+        destination_lng DECIMAL(10,6),
+        current_lat DECIMAL(10,6),
+        current_lng DECIMAL(10,6),
+        route_data JSONB,
+        eta VARCHAR(100),
+        progress INTEGER DEFAULT 0,
+        distance VARCHAR(100),
+        savings VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Shipments table ready');
+
     // Create order
+    console.log('Inserting order...');
     const orderResult = await pool.query(`
       INSERT INTO orders (
         order_number, tracking_number, user_email, customer_id, customer_name,
@@ -153,7 +224,9 @@ export async function POST(request: NextRequest) {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [
-      orderNumber, trackingNumber, userEmail,
+      orderNumber, 
+      trackingNumber, 
+      userEmail,
       body.customerId || `CUST-${Date.now()}`,
       body.customerName || 'Self',
       JSON.stringify(items),
@@ -161,12 +234,16 @@ export async function POST(request: NextRequest) {
       'processing',
       body.shippingAddress || destination.name,
       body.deliveryType || truck.vehicleType,
-      truck.id, truck.vehicleNumber, truck.driverName
+      truck.id, 
+      truck.vehicleNumber, 
+      truck.driverName
     ]);
 
     const order = orderResult.rows[0];
+    console.log('Order created:', order.id);
 
     // Create shipment
+    console.log('Inserting shipment...');
     const shipmentResult = await pool.query(`
       INSERT INTO shipments (
         order_id, order_number, user_email, vehicle_id, vehicle_number,
@@ -176,18 +253,31 @@ export async function POST(request: NextRequest) {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *
     `, [
-      order.id, orderNumber, userEmail,
-      truck.id, truck.vehicleNumber, truck.driverName, truck.vehicleType,
+      order.id, 
+      orderNumber, 
+      userEmail,
+      truck.id, 
+      truck.vehicleNumber, 
+      truck.driverName, 
+      truck.vehicleType,
       'picking_up',
-      origin.name, origin.lat, origin.lng,
-      destination.name, destination.lat, destination.lng,
-      origin.lat, origin.lng,
+      origin.name, 
+      origin.lat, 
+      origin.lng,
+      destination.name, 
+      destination.lat, 
+      destination.lng,
+      origin.lat, 
+      origin.lng,
       JSON.stringify({ ...selectedRoute, coordinates: routeCoordinates }),
       selectedRoute.time || '4-6 hours',
-      15, selectedRoute.distance, selectedRoute.savings
+      15, 
+      selectedRoute.distance || '24.5 km', 
+      selectedRoute.savings || '15%'
     ]);
+    console.log('Shipment created:', shipmentResult.rows[0].id);
 
-    // Create notification
+    // Create notification (non-blocking)
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS notifications (
@@ -216,12 +306,13 @@ export async function POST(request: NextRequest) {
         orderNumber,
         trackingNumber
       ]);
+      console.log('Notification created');
     } catch (notifError) {
-      console.error('Error creating notification:', notifError);
-      // Don't fail the order if notification fails
+      console.error('Error creating notification (non-fatal):', notifError);
     }
 
     await pool.end();
+    console.log('Order placement complete');
 
     return NextResponse.json({
       success: true,
@@ -256,13 +347,54 @@ export async function POST(request: NextRequest) {
 
   } catch (error: unknown) {
     console.error('Error placing order:', error);
-    const pgError = error as { code?: string; message?: string };
-    if (pgError.code === '23505') {
-      return NextResponse.json({ error: 'Order number already exists' }, { status: 409 });
+    
+    // Try to close pool if it exists
+    if (pool) {
+      try {
+        await pool.end();
+      } catch (e) {
+        console.error('Error closing pool:', e);
+      }
     }
+    
+    const pgError = error as { code?: string; message?: string; detail?: string };
+    
+    // Log detailed error info
+    console.error('Error details:', {
+      code: pgError.code,
+      message: pgError.message,
+      detail: pgError.detail
+    });
+    
+    if (pgError.code === '23505') {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Order number already exists. Please try again.',
+        code: 'DUPLICATE_ORDER'
+      }, { status: 409 });
+    }
+    
+    if (pgError.code === '42P01') {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Database table not found. Please contact support.',
+        code: 'TABLE_NOT_FOUND'
+      }, { status: 500 });
+    }
+    
+    if (pgError.code === 'ECONNREFUSED' || pgError.code === 'ETIMEDOUT') {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Database connection failed. Please try again.',
+        code: 'DB_CONNECTION_FAILED'
+      }, { status: 503 });
+    }
+    
     return NextResponse.json({ 
-      error: 'Failed to place order',
-      details: pgError.message || 'Unknown error'
+      success: false,
+      error: 'Failed to place order. Please try again.',
+      details: pgError.message || 'Unknown error',
+      code: pgError.code || 'UNKNOWN'
     }, { status: 500 });
   }
 }
