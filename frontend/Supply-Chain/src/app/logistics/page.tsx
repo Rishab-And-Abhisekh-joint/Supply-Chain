@@ -1,251 +1,678 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Truck, MapPin, Navigation, Clock, CheckCircle, AlertTriangle, Wrench, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { vehiclesApi, logisticsApi, Vehicle } from '@/lib/api';
+import {
+  Truck,
+  Search,
+  Plus,
+  RefreshCw,
+  MapPin,
+  Navigation,
+  Clock,
+  Package,
+  AlertTriangle,
+  X,
+  Edit,
+  Eye,
+  Wrench,
+  CheckCircle,
+  Play,
+  Pause,
+  Route,
+  Fuel,
+} from 'lucide-react';
 
-interface Vehicle {
-  id: string;
-  vehicleNumber: string;
-  type: 'truck' | 'van' | 'bike';
-  driver: string;
-  status: 'moving' | 'delivering' | 'idle' | 'maintenance';
-  currentLocation: { lat: number; lng: number };
-  destination?: string;
-  capacity: number;
-  currentLoad: number;
-  eta?: string;
-}
+type VehicleStatus = 'moving' | 'delivering' | 'idle' | 'maintenance';
 
-const demoVehicles: Vehicle[] = [
-  { id: '1', vehicleNumber: 'DL01AB1234', type: 'truck', driver: 'Rajesh Kumar', status: 'moving', currentLocation: { lat: 28.6139, lng: 77.2090 }, destination: 'Mumbai', capacity: 10000, currentLoad: 7500, eta: '18:30' },
-  { id: '2', vehicleNumber: 'DL02CD5678', type: 'truck', driver: 'Amit Singh', status: 'delivering', currentLocation: { lat: 28.5355, lng: 77.3910 }, destination: 'Noida', capacity: 8000, currentLoad: 6000, eta: '14:15' },
-  { id: '3', vehicleNumber: 'HR03EF9012', type: 'van', driver: 'Suresh Yadav', status: 'idle', currentLocation: { lat: 28.4595, lng: 77.0266 }, capacity: 3000, currentLoad: 0 },
-  { id: '4', vehicleNumber: 'DL04GH3456', type: 'truck', driver: 'Vikram Sharma', status: 'moving', currentLocation: { lat: 28.7041, lng: 77.1025 }, destination: 'Gurgaon', capacity: 10000, currentLoad: 8500, eta: '15:45' },
-  { id: '5', vehicleNumber: 'UP05IJ7890', type: 'van', driver: 'Prakash Verma', status: 'maintenance', currentLocation: { lat: 28.6692, lng: 77.4538 }, capacity: 3000, currentLoad: 0 },
-  { id: '6', vehicleNumber: 'DL06KL2345', type: 'bike', driver: 'Ravi Tiwari', status: 'delivering', currentLocation: { lat: 28.6280, lng: 77.2200 }, destination: 'Connaught Place', capacity: 50, currentLoad: 35, eta: '13:00' },
-];
+const statusConfig: Record<VehicleStatus, { label: string; color: string; bgColor: string; icon: React.ComponentType<any> }> = {
+  moving: { label: 'In Transit', color: 'text-blue-700', bgColor: 'bg-blue-100', icon: Play },
+  delivering: { label: 'Delivering', color: 'text-green-700', bgColor: 'bg-green-100', icon: Package },
+  idle: { label: 'Idle', color: 'text-gray-700', bgColor: 'bg-gray-100', icon: Pause },
+  maintenance: { label: 'Maintenance', color: 'text-orange-700', bgColor: 'bg-orange-100', icon: Wrench },
+};
 
 export default function LogisticsPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const response = await fetch('/data/vehicles.json');
-        if (response.ok) {
-          const data = await response.json();
-          setVehicles(data);
-        } else {
-          setVehicles(demoVehicles);
-        }
-      } catch {
-        setVehicles(demoVehicles);
-      }
-      setLoading(false);
-    };
-    loadData();
+  // Route optimization state
+  const [routeForm, setRouteForm] = useState({
+    origin: '',
+    destination: '',
+    vehicleType: 'truck',
+  });
+  const [routeResult, setRouteResult] = useState<any>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  // Add vehicle form
+  const [formData, setFormData] = useState({
+    vehicleNumber: '',
+    type: 'truck' as 'truck' | 'van' | 'bike',
+    model: '',
+    driver: '',
+    driverPhone: '',
+    capacity: 10000,
+  });
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const vehiclesData = await vehiclesApi.getAll();
+      setVehicles(vehiclesData);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch vehicles');
+      console.error('Error fetching vehicles:', err);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const stats = {
-    total: vehicles.length,
-    moving: vehicles.filter(v => v.status === 'moving').length,
-    delivering: vehicles.filter(v => v.status === 'delivering').length,
-    idle: vehicles.filter(v => v.status === 'idle').length,
-    maintenance: vehicles.filter(v => v.status === 'maintenance').length,
-  };
+  useEffect(() => {
+    fetchData();
+    // Set up refresh interval for real-time updates
+    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, [fetchData]);
 
-  const filteredVehicles = selectedStatus === 'all' 
-    ? vehicles 
-    : vehicles.filter(v => v.status === selectedStatus);
+  // Filter vehicles
+  const filteredVehicles = vehicles.filter(vehicle => {
+    const matchesSearch =
+      vehicle.vehicleNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vehicle.driver.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || vehicle.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'moving': return <Navigation className="w-4 h-4" />;
-      case 'delivering': return <CheckCircle className="w-4 h-4" />;
-      case 'idle': return <Clock className="w-4 h-4" />;
-      case 'maintenance': return <Wrench className="w-4 h-4" />;
-      default: return null;
+  // Stats
+  const totalVehicles = vehicles.length;
+  const activeVehicles = vehicles.filter(v => v.status === 'moving' || v.status === 'delivering').length;
+  const idleVehicles = vehicles.filter(v => v.status === 'idle').length;
+  const maintenanceVehicles = vehicles.filter(v => v.status === 'maintenance').length;
+
+  const handleAddVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      const newVehicle = await vehiclesApi.create(formData);
+      setVehicles([...vehicles, newVehicle]);
+      setShowAddModal(false);
+      resetForm();
+    } catch (err: any) {
+      setError(err.message || 'Failed to add vehicle');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'moving': return 'bg-green-100 text-green-800 border-green-200';
-      case 'delivering': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'idle': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'maintenance': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800';
+  const handleUpdateStatus = async (vehicleId: string, newStatus: VehicleStatus) => {
+    try {
+      const updatedVehicle = await vehiclesApi.updateStatus(vehicleId, newStatus);
+      setVehicles(vehicles.map(v => (v.id === vehicleId ? updatedVehicle : v)));
+    } catch (err: any) {
+      setError(err.message || 'Failed to update vehicle status');
     }
   };
 
-  const getVehicleIcon = (type: string) => {
-    switch (type) {
-      case 'truck': return '🚛';
-      case 'van': return '🚐';
-      case 'bike': return '🏍️';
-      default: return '🚗';
+  const handleOptimizeRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsOptimizing(true);
+    setRouteResult(null);
+
+    try {
+      const result = await logisticsApi.optimizeRoute({
+        origin: routeForm.origin,
+        destination: routeForm.destination,
+        vehicleType: routeForm.vehicleType,
+      });
+      setRouteResult(result);
+    } catch (err: any) {
+      setError(err.message || 'Failed to optimize route');
+    } finally {
+      setIsOptimizing(false);
     }
   };
 
-  if (loading) {
+  const resetForm = () => {
+    setFormData({
+      vehicleNumber: '',
+      type: 'truck',
+      model: '',
+      driver: '',
+      driverPhone: '',
+      capacity: 10000,
+    });
+  };
+
+  const getUtilizationColor = (current: number, capacity: number) => {
+    const percentage = (current / capacity) * 100;
+    if (percentage >= 90) return 'bg-red-500';
+    if (percentage >= 70) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="flex flex-col items-center gap-4">
+          <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+          <p className="text-gray-600">Loading fleet data...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Logistics & Fleet Management</h1>
-        <p className="text-gray-500">Track vehicles and manage deliveries</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Logistics & Fleet Management</h1>
+          <p className="text-gray-600">Track vehicles and optimize delivery routes</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchData}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowRouteModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50"
+          >
+            <Route className="w-4 h-4" />
+            Optimize Route
+          </button>
+          <button
+            onClick={() => {
+              resetForm();
+              setShowAddModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-4 h-4" />
+            Add Vehicle
+          </button>
+        </div>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600" />
+          <p className="text-red-800">{error}</p>
+          <button onClick={() => setError(null)} className="ml-auto text-red-600 hover:text-red-800">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <button
-          onClick={() => setSelectedStatus('all')}
-          className={`bg-white rounded-xl p-4 border shadow-sm text-left transition ${selectedStatus === 'all' ? 'ring-2 ring-blue-500' : ''}`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-gray-100 rounded-lg">
-              <Truck className="w-5 h-5 text-gray-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Total Fleet</p>
-              <p className="text-2xl font-bold">{stats.total}</p>
-            </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">Total Fleet</p>
+            <Truck className="w-5 h-5 text-blue-600" />
           </div>
-        </button>
-        <button
-          onClick={() => setSelectedStatus('moving')}
-          className={`bg-white rounded-xl p-4 border shadow-sm text-left transition ${selectedStatus === 'moving' ? 'ring-2 ring-green-500' : ''}`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <Navigation className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Moving</p>
-              <p className="text-2xl font-bold text-green-600">{stats.moving}</p>
-            </div>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{totalVehicles}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">Active</p>
+            <Play className="w-5 h-5 text-green-600" />
           </div>
-        </button>
-        <button
-          onClick={() => setSelectedStatus('delivering')}
-          className={`bg-white rounded-xl p-4 border shadow-sm text-left transition ${selectedStatus === 'delivering' ? 'ring-2 ring-blue-500' : ''}`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <CheckCircle className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Delivering</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.delivering}</p>
-            </div>
+          <p className="text-2xl font-bold text-green-600 mt-1">{activeVehicles}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">Idle</p>
+            <Pause className="w-5 h-5 text-gray-600" />
           </div>
-        </button>
-        <button
-          onClick={() => setSelectedStatus('idle')}
-          className={`bg-white rounded-xl p-4 border shadow-sm text-left transition ${selectedStatus === 'idle' ? 'ring-2 ring-yellow-500' : ''}`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Clock className="w-5 h-5 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Idle</p>
-              <p className="text-2xl font-bold text-yellow-600">{stats.idle}</p>
-            </div>
+          <p className="text-2xl font-bold text-gray-600 mt-1">{idleVehicles}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">Maintenance</p>
+            <Wrench className="w-5 h-5 text-orange-600" />
           </div>
-        </button>
-        <button
-          onClick={() => setSelectedStatus('maintenance')}
-          className={`bg-white rounded-xl p-4 border shadow-sm text-left transition ${selectedStatus === 'maintenance' ? 'ring-2 ring-red-500' : ''}`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <Wrench className="w-5 h-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Maintenance</p>
-              <p className="text-2xl font-bold text-red-600">{stats.maintenance}</p>
-            </div>
-          </div>
-        </button>
+          <p className="text-2xl font-bold text-orange-600 mt-1">{maintenanceVehicles}</p>
+        </div>
       </div>
 
-      {/* Vehicle Cards */}
+      {/* Filters */}
+      <div className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by vehicle number or driver..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Status</option>
+            <option value="moving">In Transit</option>
+            <option value="delivering">Delivering</option>
+            <option value="idle">Idle</option>
+            <option value="maintenance">Maintenance</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Vehicles Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredVehicles.map((vehicle) => (
-          <div key={vehicle.id} className="bg-white rounded-xl border shadow-sm p-4">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{getVehicleIcon(vehicle.type)}</span>
-                <div>
-                  <p className="font-bold text-gray-900">{vehicle.vehicleNumber}</p>
-                  <p className="text-sm text-gray-500">{vehicle.driver}</p>
+        {filteredVehicles.length === 0 ? (
+          <div className="col-span-full text-center py-12 text-gray-500">
+            No vehicles found
+          </div>
+        ) : (
+          filteredVehicles.map(vehicle => {
+            const status = statusConfig[vehicle.status];
+            const StatusIcon = status.icon;
+            const utilizationPercent = (vehicle.currentLoad / vehicle.capacity) * 100;
+
+            return (
+              <div
+                key={vehicle.id}
+                className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+              >
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg ${status.bgColor} flex items-center justify-center`}>
+                        <Truck className={`w-5 h-5 ${status.color}`} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-900">{vehicle.vehicleNumber}</p>
+                        <p className="text-xs text-gray-500 capitalize">{vehicle.type}</p>
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${status.bgColor} ${status.color}`}>
+                      <StatusIcon className="w-3 h-3" />
+                      {status.label}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <MapPin className="w-4 h-4" />
+                      <span>
+                        {vehicle.currentLocation
+                          ? `${vehicle.currentLocation.lat.toFixed(4)}, ${vehicle.currentLocation.lng.toFixed(4)}`
+                          : 'Location unavailable'}
+                      </span>
+                    </div>
+                    {vehicle.destination && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Navigation className="w-4 h-4" />
+                        <span>{vehicle.destination}</span>
+                      </div>
+                    )}
+                    {vehicle.eta && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Clock className="w-4 h-4" />
+                        <span>ETA: {vehicle.eta}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Package className="w-4 h-4" />
+                      <span>Driver: {vehicle.driver}</span>
+                    </div>
+                  </div>
+
+                  {/* Capacity Bar */}
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                      <span>Load Capacity</span>
+                      <span>{vehicle.currentLoad.toLocaleString()} / {vehicle.capacity.toLocaleString()} kg</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${getUtilizationColor(vehicle.currentLoad, vehicle.capacity)} transition-all`}
+                        style={{ width: `${Math.min(utilizationPercent, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                  <button
+                    onClick={() => {
+                      setSelectedVehicle(vehicle);
+                      setShowDetailModal(true);
+                    }}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    View Details
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={vehicle.status}
+                      onChange={e => handleUpdateStatus(vehicle.id, e.target.value as VehicleStatus)}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="moving">In Transit</option>
+                      <option value="delivering">Delivering</option>
+                      <option value="idle">Idle</option>
+                      <option value="maintenance">Maintenance</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(vehicle.status)}`}>
-                {getStatusIcon(vehicle.status)}
-                {vehicle.status}
-              </span>
-            </div>
+            );
+          })
+        )}
+      </div>
 
-            {/* Load Bar */}
-            <div className="mb-3">
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Load</span>
-                <span>{vehicle.currentLoad} / {vehicle.capacity} kg</span>
-              </div>
-              <div className="w-full h-2 bg-gray-200 rounded-full">
-                <div 
-                  className="h-full bg-blue-500 rounded-full"
-                  style={{ width: `${(vehicle.currentLoad / vehicle.capacity) * 100}%` }}
+      {/* Add Vehicle Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold">Add New Vehicle</h2>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddVehicle} className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Number</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.vehicleNumber}
+                  onChange={e => setFormData({ ...formData, vehicleNumber: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., DL01AB1234"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Type</label>
+                  <select
+                    value={formData.type}
+                    onChange={e => setFormData({ ...formData, type: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="truck">Truck</option>
+                    <option value="van">Van</option>
+                    <option value="bike">Bike</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Model (optional)</label>
+                  <input
+                    type="text"
+                    value={formData.model}
+                    onChange={e => setFormData({ ...formData, model: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Driver Name</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.driver}
+                  onChange={e => setFormData({ ...formData, driver: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Driver Phone (optional)</label>
+                <input
+                  type="tel"
+                  value={formData.driverPhone}
+                  onChange={e => setFormData({ ...formData, driverPhone: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Capacity (kg)</label>
+                <input
+                  type="number"
+                  required
+                  min="100"
+                  value={formData.capacity}
+                  onChange={e => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Adding...' : 'Add Vehicle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Route Optimization Modal */}
+      {showRouteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold">Route Optimization</h2>
+              <button onClick={() => setShowRouteModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-
-            {/* Destination */}
-            {vehicle.destination && (
-              <div className="flex items-center gap-2 text-sm">
-                <MapPin className="w-4 h-4 text-gray-400" />
-                <span className="text-gray-600">→ {vehicle.destination}</span>
-                {vehicle.eta && (
-                  <span className="ml-auto text-blue-600 font-medium">ETA: {vehicle.eta}</span>
-                )}
+            <form onSubmit={handleOptimizeRoute} className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Origin</label>
+                <input
+                  type="text"
+                  required
+                  value={routeForm.origin}
+                  onChange={e => setRouteForm({ ...routeForm, origin: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Mumbai Warehouse"
+                />
               </div>
-            )}
-
-            {vehicle.status === 'idle' && (
-              <div className="flex items-center gap-2 text-sm text-yellow-600">
-                <Clock className="w-4 h-4" />
-                <span>Available for dispatch</span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Destination</label>
+                <input
+                  type="text"
+                  required
+                  value={routeForm.destination}
+                  onChange={e => setRouteForm({ ...routeForm, destination: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Delhi Distribution Center"
+                />
               </div>
-            )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Type</label>
+                <select
+                  value={routeForm.vehicleType}
+                  onChange={e => setRouteForm({ ...routeForm, vehicleType: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="truck">Truck</option>
+                  <option value="van">Van</option>
+                  <option value="bike">Bike</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={isOptimizing}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isOptimizing ? 'Optimizing...' : 'Find Optimal Route'}
+              </button>
+            </form>
 
-            {vehicle.status === 'maintenance' && (
-              <div className="flex items-center gap-2 text-sm text-red-600">
-                <AlertTriangle className="w-4 h-4" />
-                <span>Under maintenance</span>
+            {/* Route Result */}
+            {routeResult && (
+              <div className="p-4 border-t bg-gray-50">
+                <h3 className="font-medium text-gray-900 mb-3">Optimized Route</h3>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <Route className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Route</p>
+                      <p className="text-sm text-gray-600">{routeResult.optimalRoute}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">Est. Time</p>
+                        <p className="text-sm font-medium">{routeResult.estimatedTime}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Navigation className="w-4 h-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">Distance</p>
+                        <p className="text-sm font-medium">{routeResult.estimatedDistance}</p>
+                      </div>
+                    </div>
+                  </div>
+                  {routeResult.fuelCost && (
+                    <div className="flex items-center gap-2">
+                      <Fuel className="w-4 h-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">Est. Fuel Cost</p>
+                        <p className="text-sm font-medium">₹{routeResult.fuelCost.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  )}
+                  {routeResult.alternativeRoutes && routeResult.alternativeRoutes.length > 0 && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Alternative Routes</p>
+                      {routeResult.alternativeRoutes.map((alt: any, i: number) => (
+                        <div key={i} className="text-sm text-gray-600 py-1">
+                          {alt.route} - {alt.time} ({alt.distance})
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {/* Data Source Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-medium text-blue-900 mb-2">📁 Load Your Own Data</h3>
-        <p className="text-sm text-blue-800">
-          Place your <code className="bg-blue-100 px-1 rounded">vehicles.json</code> file in the <code className="bg-blue-100 px-1 rounded">/public/data/</code> folder.
-        </p>
-      </div>
+      {/* Vehicle Detail Modal */}
+      {showDetailModal && selectedVehicle && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold">Vehicle Details</h2>
+              <button onClick={() => setShowDetailModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex items-center gap-4">
+                <div className={`w-16 h-16 rounded-lg ${statusConfig[selectedVehicle.status].bgColor} flex items-center justify-center`}>
+                  <Truck className={`w-8 h-8 ${statusConfig[selectedVehicle.status].color}`} />
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-gray-900">{selectedVehicle.vehicleNumber}</p>
+                  <p className="text-gray-500 capitalize">{selectedVehicle.type} {selectedVehicle.model ? `- ${selectedVehicle.model}` : ''}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Status</p>
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 text-sm font-medium rounded-full ${statusConfig[selectedVehicle.status].bgColor} ${statusConfig[selectedVehicle.status].color}`}>
+                    {statusConfig[selectedVehicle.status].label}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Capacity</p>
+                  <p className="font-medium">{selectedVehicle.capacity.toLocaleString()} kg</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Current Load</p>
+                  <p className="font-medium">{selectedVehicle.currentLoad.toLocaleString()} kg</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">ETA</p>
+                  <p className="font-medium">{selectedVehicle.eta || 'N/A'}</p>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t">
+                <p className="text-sm text-gray-500 mb-1">Driver</p>
+                <p className="font-medium">{selectedVehicle.driver}</p>
+                {selectedVehicle.driverPhone && (
+                  <p className="text-sm text-blue-600">{selectedVehicle.driverPhone}</p>
+                )}
+              </div>
+
+              {selectedVehicle.destination && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Destination</p>
+                  <p className="font-medium">{selectedVehicle.destination}</p>
+                </div>
+              )}
+
+              {selectedVehicle.currentLocation && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Current Location</p>
+                  <p className="font-medium">
+                    Lat: {selectedVehicle.currentLocation.lat.toFixed(4)}, 
+                    Lng: {selectedVehicle.currentLocation.lng.toFixed(4)}
+                  </p>
+                </div>
+              )}
+
+              {selectedVehicle.lastUpdated && (
+                <div className="text-xs text-gray-400">
+                  Last updated: {new Date(selectedVehicle.lastUpdated).toLocaleString()}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
