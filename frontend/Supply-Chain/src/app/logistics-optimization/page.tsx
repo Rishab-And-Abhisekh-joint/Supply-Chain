@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Truck, MapPin, Clock, DollarSign, Fuel, Package, 
   ArrowRight, CheckCircle, AlertCircle, Loader2, Route,
-  Navigation, TrendingDown, Warehouse, Target
+  Navigation, TrendingDown, Warehouse
 } from 'lucide-react';
 import { placeOrder, PlaceOrderData } from '@/lib/services/supplychain-api';
 
@@ -57,6 +57,14 @@ interface OptimizedRoute {
   newDistance?: string;
   newTime?: string;
   newFuelCost?: number;
+}
+
+// Safe number formatting helper - prevents toLocaleString errors
+function formatNumber(value: number | undefined | null): string {
+  if (value === undefined || value === null || isNaN(value)) {
+    return '0';
+  }
+  return value.toLocaleString();
 }
 
 export default function LogisticsOptimizationPage() {
@@ -220,7 +228,7 @@ export default function LogisticsOptimizationPage() {
 
       // Redirect to dashboard after 3 seconds
       setTimeout(() => {
-        router.push(`/dashboard?tracking=${result.data?.order?.trackingNumber}`);
+        router.push(`/dashboard?tracking=${result.data?.order?.trackingNumber || ''}`);
       }, 3000);
 
     } catch (err: any) {
@@ -231,9 +239,19 @@ export default function LogisticsOptimizationPage() {
     }
   };
 
+  // Calculate total savings safely
   const totalSavings = routes
     .filter(r => r.optimized)
-    .reduce((sum, r) => sum + (r.fuelCost - (r.newFuelCost || r.fuelCost)), 0);
+    .reduce((sum, r) => {
+      const original = r.fuelCost || 0;
+      const optimized = r.newFuelCost || r.fuelCost || 0;
+      return sum + (original - optimized);
+    }, 0);
+
+  // Calculate average savings safely
+  const avgSavings = routes.length > 0 
+    ? Math.round(routes.reduce((sum, r) => sum + (parseInt(r.savings) || 0), 0) / routes.length)
+    : 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -305,19 +323,19 @@ export default function LogisticsOptimizationPage() {
                 <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <span className="text-green-600">Order Number:</span>
-                    <p className="font-semibold text-green-900">{orderResult.order?.orderNumber}</p>
+                    <p className="font-semibold text-green-900">{orderResult?.order?.orderNumber || 'N/A'}</p>
                   </div>
                   <div>
                     <span className="text-green-600">Tracking:</span>
-                    <p className="font-semibold text-green-900">{orderResult.order?.trackingNumber}</p>
+                    <p className="font-semibold text-green-900">{orderResult?.order?.trackingNumber || 'N/A'}</p>
                   </div>
                   <div>
                     <span className="text-green-600">Vehicle:</span>
-                    <p className="font-semibold text-green-900">{orderResult.truck?.vehicleNumber}</p>
+                    <p className="font-semibold text-green-900">{orderResult?.truck?.vehicleNumber || 'N/A'}</p>
                   </div>
                   <div>
                     <span className="text-green-600">Driver:</span>
-                    <p className="font-semibold text-green-900">{orderResult.truck?.driverName}</p>
+                    <p className="font-semibold text-green-900">{orderResult?.truck?.driverName || 'N/A'}</p>
                   </div>
                 </div>
                 <p className="mt-3 text-green-700">
@@ -360,7 +378,7 @@ export default function LogisticsOptimizationPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Est. Savings</p>
-              <p className="text-2xl font-bold">₹{totalSavings.toLocaleString()}</p>
+              <p className="text-2xl font-bold">₹{formatNumber(totalSavings)}</p>
             </div>
           </CardContent>
         </Card>
@@ -371,12 +389,7 @@ export default function LogisticsOptimizationPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Avg. Savings</p>
-              <p className="text-2xl font-bold">
-                {routes.length > 0 
-                  ? `${Math.round(routes.reduce((sum, r) => sum + parseInt(r.savings), 0) / routes.length)}%`
-                  : '0%'
-                }
-              </p>
+              <p className="text-2xl font-bold">{avgSavings}%</p>
             </div>
           </CardContent>
         </Card>
@@ -394,13 +407,13 @@ export default function LogisticsOptimizationPage() {
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">{pendingOrder.productName}</p>
+                <p className="font-medium">{pendingOrder.productName || 'Product'}</p>
                 <p className="text-sm text-muted-foreground">
-                  Quantity: {pendingOrder.quantity} | Unit Price: ₹{pendingOrder.unitPrice}
+                  Quantity: {pendingOrder.quantity || 0} | Unit Price: ₹{formatNumber(pendingOrder.unitPrice)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold">₹{pendingOrder.total.toLocaleString()}</p>
+                <p className="text-2xl font-bold">₹{formatNumber(pendingOrder.total)}</p>
                 <Badge variant="outline">{pendingOrder.recommendation || 'Ready for Shipment'}</Badge>
               </div>
             </div>
@@ -474,10 +487,10 @@ export default function LogisticsOptimizationPage() {
                 <div className="flex items-center gap-1">
                   <Fuel className="w-4 h-4 text-muted-foreground" />
                   <span className={route.optimized ? 'line-through text-muted-foreground' : ''}>
-                    ₹{route.fuelCost}
+                    ₹{formatNumber(route.fuelCost)}
                   </span>
-                  {route.optimized && route.newFuelCost && (
-                    <span className="text-green-600 font-medium">₹{route.newFuelCost}</span>
+                  {route.optimized && route.newFuelCost !== undefined && (
+                    <span className="text-green-600 font-medium">₹{formatNumber(route.newFuelCost)}</span>
                   )}
                 </div>
               </div>
@@ -519,7 +532,7 @@ export default function LogisticsOptimizationPage() {
                   <div className="flex gap-4 text-sm text-muted-foreground">
                     <span>{selectedRoute.newDistance || selectedRoute.distance}</span>
                     <span>{selectedRoute.newTime || selectedRoute.time}</span>
-                    <span>₹{selectedRoute.newFuelCost || selectedRoute.fuelCost}</span>
+                    <span>₹{formatNumber(selectedRoute.newFuelCost || selectedRoute.fuelCost)}</span>
                   </div>
                 </div>
               )}
@@ -528,7 +541,7 @@ export default function LogisticsOptimizationPage() {
                 <div className="p-4 bg-blue-50 rounded-lg space-y-2">
                   <p className="text-sm font-medium">Order Details:</p>
                   <p>{pendingOrder.productName} x {pendingOrder.quantity}</p>
-                  <p className="text-lg font-bold">₹{pendingOrder.total.toLocaleString()}</p>
+                  <p className="text-lg font-bold">₹{formatNumber(pendingOrder.total)}</p>
                 </div>
               )}
 
