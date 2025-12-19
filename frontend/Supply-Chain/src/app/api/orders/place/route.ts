@@ -1,27 +1,7 @@
 // app/api/orders/place/route.ts
-// Place order + create shipment - STANDALONE
+// Place order + create shipment with proper error handling and fallback
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-function getUserEmail(request: NextRequest): string {
-  return request.headers.get('X-User-Email') || 'demo@example.com';
-}
-
-async function query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]> {
-  const result = await pool.query(text, params);
-  return result.rows as T[];
-}
-
-async function queryOne<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T | null> {
-  const rows = await query<T>(text, params);
-  return rows[0] || null;
-}
 
 const AVAILABLE_TRUCKS = [
   { id: 'TRK-001', vehicleNumber: 'MH-01-AB-1234', driverName: 'Rajesh Kumar', vehicleType: 'Heavy Truck' },
@@ -30,6 +10,10 @@ const AVAILABLE_TRUCKS = [
   { id: 'TRK-004', vehicleNumber: 'TN-04-GH-3456', driverName: 'Vikram Rao', vehicleType: 'Delivery Van' },
   { id: 'TRK-005', vehicleNumber: 'WB-05-IJ-7890', driverName: 'Manoj Verma', vehicleType: 'Heavy Truck' },
 ];
+
+function getUserEmail(request: NextRequest): string {
+  return request.headers.get('X-User-Email') || 'demo@example.com';
+}
 
 function generateOrderNumber(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -73,12 +57,72 @@ export async function POST(request: NextRequest) {
     const orderNumber = generateOrderNumber();
     const trackingNumber = generateTrackingNumber();
     const truck = AVAILABLE_TRUCKS[Math.floor(Math.random() * AVAILABLE_TRUCKS.length)];
+    const now = new Date().toISOString();
 
     const routeCoordinates = body.selectedRoute.coordinates || 
       generateRouteCoordinates(body.origin.lat, body.origin.lng, body.destination.lat, body.destination.lng);
 
+    // If no DATABASE_URL, return demo data
+    if (!process.env.DATABASE_URL) {
+      const demoOrder = {
+        id: `order-${Date.now()}`,
+        orderNumber,
+        trackingNumber,
+        customerId: body.customerId || `CUST-${Date.now()}`,
+        customerName: body.customerName || 'Self',
+        items: body.items,
+        totalAmount: body.totalAmount || 0,
+        status: 'processing',
+        shippingAddress: body.shippingAddress || body.destination.name,
+        deliveryType: body.deliveryType || truck.vehicleType,
+        assignedVehicle: truck.id,
+        vehicleNumber: truck.vehicleNumber,
+        driverName: truck.driverName,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const demoShipment = {
+        id: `ship-${Date.now()}`,
+        orderId: demoOrder.id,
+        orderNumber,
+        vehicleId: truck.id,
+        vehicleNumber: truck.vehicleNumber,
+        driverName: truck.driverName,
+        vehicleType: truck.vehicleType,
+        status: 'picking_up',
+        origin: body.origin,
+        destination: body.destination,
+        currentLocation: body.origin,
+        route: { ...body.selectedRoute, coordinates: routeCoordinates },
+        eta: body.selectedRoute.time || '4-6 hours',
+        progress: 15,
+        distance: body.selectedRoute.distance,
+        savings: body.selectedRoute.savings,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          order: demoOrder,
+          shipment: demoShipment,
+          truck
+        },
+        source: 'demo'
+      }, { status: 201 });
+    }
+
+    // Database mode
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+
     // Create order
-    const order = await queryOne<Record<string, unknown>>(`
+    const orderResult = await pool.query(`
       INSERT INTO orders (
         order_number, tracking_number, user_email, customer_id, customer_name,
         items, total_amount, status, shipping_address, delivery_type,
@@ -97,10 +141,10 @@ export async function POST(request: NextRequest) {
       truck.id, truck.vehicleNumber, truck.driverName
     ]);
 
-    if (!order) throw new Error('Failed to create order');
+    const order = orderResult.rows[0];
 
     // Create shipment
-    const shipment = await queryOne<Record<string, unknown>>(`
+    const shipmentResult = await pool.query(`
       INSERT INTO shipments (
         order_id, order_number, user_email, vehicle_id, vehicle_number,
         driver_name, vehicle_type, status, origin_name, origin_lat, origin_lng,
@@ -120,6 +164,8 @@ export async function POST(request: NextRequest) {
       15, body.selectedRoute.distance, body.selectedRoute.savings
     ]);
 
+    await pool.end();
+
     return NextResponse.json({
       success: true,
       data: {
@@ -133,16 +179,16 @@ export async function POST(request: NextRequest) {
           driverName: order.driver_name,
           createdAt: order.created_at
         },
-        shipment: shipment ? {
-          id: shipment.id,
-          orderNumber: shipment.order_number,
-          vehicleNumber: shipment.vehicle_number,
-          driverName: shipment.driver_name,
-          status: shipment.status,
-          progress: shipment.progress,
-          eta: shipment.eta
-        } : null,
-        truck: { id: truck.id, vehicleNumber: truck.vehicleNumber, driverName: truck.driverName, vehicleType: truck.vehicleType }
+        shipment: {
+          id: shipmentResult.rows[0].id,
+          orderNumber: orderNumber,
+          vehicleNumber: truck.vehicleNumber,
+          driverName: truck.driverName,
+          status: 'picking_up',
+          progress: 15,
+          eta: body.selectedRoute.time || '4-6 hours'
+        },
+        truck
       }
     }, { status: 201 });
 

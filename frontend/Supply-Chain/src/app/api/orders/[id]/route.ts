@@ -1,44 +1,12 @@
 // app/api/orders/[id]/route.ts
-// API routes for individual order operations - Next.js 15 compatible
+// Single order operations - Next.js 15 compatible with fallback
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
 
-// Create database connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-// Helper to get user email from request headers
 function getUserEmail(request: NextRequest): string {
-  const userHeader = request.headers.get('X-User-Email');
-  if (userHeader) return userHeader;
-  return 'demo@example.com';
+  return request.headers.get('X-User-Email') || 'demo@example.com';
 }
 
-// Helper to query database
-async function query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]> {
-  const result = await pool.query(text, params);
-  return result.rows as T[];
-}
-
-async function queryOne<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T | null> {
-  const rows = await query<T>(text, params);
-  return rows[0] || null;
-}
-
-interface UpdateOrderRequest {
-  status?: string;
-  shippingAddress?: string;
-  deliveryType?: string;
-  assignedVehicle?: string;
-  vehicleNumber?: string;
-  driverName?: string;
-  notes?: string;
-}
-
-// GET /api/orders/[id] - Get a single order
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -47,41 +15,71 @@ export async function GET(
     const { id: orderId } = await params;
     const userEmail = getUserEmail(request);
 
-    const order = await queryOne(`
-      SELECT 
-        o.*,
-        s.id as shipment_id,
-        s.status as shipment_status,
-        s.progress as shipment_progress,
-        s.current_lat,
-        s.current_lng,
-        s.eta,
-        s.origin_name,
-        s.destination_name
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: orderId,
+          orderNumber: orderId.startsWith('ORD-') ? orderId : `ORD-${orderId.slice(0, 6)}`,
+          trackingNumber: `TRK-DEMO${orderId.slice(-4)}`,
+          customerName: 'Demo Customer',
+          items: [{ productId: 'P1', productName: 'Sample Product', quantity: 10, unitPrice: 100, total: 1000 }],
+          totalAmount: 1000,
+          status: 'processing',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        source: 'demo'
+      });
+    }
+
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+
+    const result = await pool.query(`
+      SELECT o.*, s.id as shipment_id, s.status as shipment_status, s.progress
       FROM orders o
       LEFT JOIN shipments s ON o.id = s.order_id
       WHERE o.user_email = $1 AND (o.id::text = $2 OR o.order_number = $2)
     `, [userEmail, orderId]);
 
-    if (!order) {
+    await pool.end();
+
+    if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
+    const o = result.rows[0];
     return NextResponse.json({
       success: true,
-      data: order
+      data: {
+        id: o.id,
+        orderNumber: o.order_number,
+        trackingNumber: o.tracking_number,
+        customerName: o.customer_name,
+        items: o.items || [],
+        totalAmount: parseFloat(String(o.total_amount || 0)),
+        status: o.status,
+        shippingAddress: o.shipping_address,
+        vehicleNumber: o.vehicle_number,
+        driverName: o.driver_name,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+        shipmentId: o.shipment_id,
+        shipmentStatus: o.shipment_status,
+        shipmentProgress: o.progress,
+      }
     });
 
   } catch (error) {
-    console.error('Error fetching order:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch order' },
-      { status: 500 }
-    );
+    console.error('Error:', error);
+    return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });
   }
 }
 
-// PUT /api/orders/[id] - Update an order
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -89,89 +87,56 @@ export async function PUT(
   try {
     const { id: orderId } = await params;
     const userEmail = getUserEmail(request);
-    const body: UpdateOrderRequest = await request.json();
+    const body = await request.json();
+
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({
+        success: true,
+        data: { id: orderId, ...body, updatedAt: new Date().toISOString() },
+        source: 'demo'
+      });
+    }
+
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
 
     const updates: string[] = [];
     const values: unknown[] = [];
     let paramIndex = 1;
 
-    if (body.status !== undefined) {
-      updates.push(`status = $${paramIndex}`);
-      values.push(body.status);
-      paramIndex++;
-    }
-
-    if (body.shippingAddress !== undefined) {
-      updates.push(`shipping_address = $${paramIndex}`);
-      values.push(body.shippingAddress);
-      paramIndex++;
-    }
-
-    if (body.deliveryType !== undefined) {
-      updates.push(`delivery_type = $${paramIndex}`);
-      values.push(body.deliveryType);
-      paramIndex++;
-    }
-
-    if (body.assignedVehicle !== undefined) {
-      updates.push(`assigned_vehicle = $${paramIndex}`);
-      values.push(body.assignedVehicle);
-      paramIndex++;
-    }
-
-    if (body.vehicleNumber !== undefined) {
-      updates.push(`vehicle_number = $${paramIndex}`);
-      values.push(body.vehicleNumber);
-      paramIndex++;
-    }
-
-    if (body.driverName !== undefined) {
-      updates.push(`driver_name = $${paramIndex}`);
-      values.push(body.driverName);
-      paramIndex++;
-    }
-
-    if (body.notes !== undefined) {
-      updates.push(`notes = $${paramIndex}`);
-      values.push(body.notes);
-      paramIndex++;
-    }
+    if (body.status) { updates.push(`status = $${paramIndex}`); values.push(body.status); paramIndex++; }
+    if (body.shippingAddress) { updates.push(`shipping_address = $${paramIndex}`); values.push(body.shippingAddress); paramIndex++; }
+    if (body.notes) { updates.push(`notes = $${paramIndex}`); values.push(body.notes); paramIndex++; }
 
     if (updates.length === 0) {
-      return NextResponse.json(
-        { error: 'No fields to update' },
-        { status: 400 }
-      );
+      await pool.end();
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
     values.push(userEmail, orderId);
-
-    const result = await queryOne(`
-      UPDATE orders
-      SET ${updates.join(', ')}
+    const result = await pool.query(`
+      UPDATE orders SET ${updates.join(', ')}
       WHERE user_email = $${paramIndex} AND (id::text = $${paramIndex + 1} OR order_number = $${paramIndex + 1})
       RETURNING *
     `, values);
 
-    if (!result) {
+    await pool.end();
+
+    if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: result
-    });
+    return NextResponse.json({ success: true, data: result.rows[0] });
 
   } catch (error) {
-    console.error('Error updating order:', error);
-    return NextResponse.json(
-      { error: 'Failed to update order' },
-      { status: 500 }
-    );
+    console.error('Error:', error);
+    return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
   }
 }
 
-// DELETE /api/orders/[id] - Delete an order
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -180,27 +145,25 @@ export async function DELETE(
     const { id: orderId } = await params;
     const userEmail = getUserEmail(request);
 
-    const result = await queryOne(`
-      DELETE FROM orders
-      WHERE user_email = $1 AND (id::text = $2 OR order_number = $2)
-      RETURNING id, order_number
-    `, [userEmail, orderId]);
-
-    if (!result) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({ success: true, message: 'Order deleted (demo)' });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Order deleted successfully',
-      data: result
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
     });
 
+    await pool.query(`
+      DELETE FROM orders WHERE user_email = $1 AND (id::text = $2 OR order_number = $2)
+    `, [userEmail, orderId]);
+
+    await pool.end();
+    return NextResponse.json({ success: true, message: 'Order deleted' });
+
   } catch (error) {
-    console.error('Error deleting order:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete order' },
-      { status: 500 }
-    );
+    console.error('Error:', error);
+    return NextResponse.json({ error: 'Failed to delete order' }, { status: 500 });
   }
 }
