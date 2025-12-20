@@ -15,7 +15,8 @@ import {
 import { 
   Package, Truck, MapPin, Clock, DollarSign, Route,
   CheckCircle, RefreshCw, Loader2, Navigation, Eye,
-  TrendingDown, AlertCircle, X
+  TrendingDown, AlertCircle, X, Database, Warehouse,
+  Users, ShoppingCart
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -26,6 +27,82 @@ import {
 
 // Set Mapbox access token
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_API_KEY || 'pk.eyJ1IjoicmlzaGFiLWFjaGFyamVlIiwiYSI6ImNtY3gwNW9lejA1bWgyanNhNTh4MGMyc3UifQ.ioMV5nbcBFh3VpvDMzEzIg';
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function getUserEmail(): string {
+  if (typeof window === 'undefined') return 'demo@example.com';
+  try {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      return user.email || 'demo@example.com';
+    }
+  } catch {}
+  return 'demo@example.com';
+}
+
+// Types for uploaded data
+interface UploadedOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  totalAmount: number;
+  status: string;
+  items?: any[];
+  createdAt?: string;
+}
+
+interface UploadedWarehouse {
+  id: string;
+  name: string;
+  city: string;
+  capacity: number;
+  currentUtilization: number;
+  status: string;
+}
+
+interface UploadedVehicle {
+  id: string;
+  vehicleNumber: string;
+  type: string;
+  status: string;
+  driver?: string;
+  capacity?: number;
+}
+
+interface UploadedDelivery {
+  id: string;
+  orderId: string;
+  status: string;
+  progress?: number;
+  origin?: any;
+  destination?: any;
+}
+
+interface UploadedInventory {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  currentStock: number;
+  reorderLevel: number;
+  price: number;
+}
+
+interface UploadedTeamMember {
+  id: string;
+  name: string;
+  role: string;
+  department: string;
+  status: string;
+}
+
+// ============================================================================
+// STATUS HELPERS
+// ============================================================================
 
 const getStatusColor = (status: string) => {
   const colors: { [key: string]: string } = {
@@ -47,15 +124,32 @@ const getStatusBadge = (status: string) => {
   return styles[status] || 'bg-gray-100 text-gray-800';
 };
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 export default function Dashboard() {
   const searchParams = useSearchParams();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
 
+  // Live data from website activity
   const [orders, setOrders] = useState<Order[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [routes, setRoutes] = useState<OptimizedRoute[]>([]);
+  
+  // Uploaded JSON data (base data)
+  const [uploadedOrders, setUploadedOrders] = useState<UploadedOrder[]>([]);
+  const [uploadedWarehouses, setUploadedWarehouses] = useState<UploadedWarehouse[]>([]);
+  const [uploadedVehicles, setUploadedVehicles] = useState<UploadedVehicle[]>([]);
+  const [uploadedDeliveries, setUploadedDeliveries] = useState<UploadedDelivery[]>([]);
+  const [uploadedInventory, setUploadedInventory] = useState<UploadedInventory[]>([]);
+  const [uploadedTeam, setUploadedTeam] = useState<UploadedTeamMember[]>([]);
+  
+  // Data source tracking
+  const [dataSource, setDataSource] = useState<string>('loading');
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -70,16 +164,91 @@ export default function Dashboard() {
     if (tracking) {
       setNewTrackingNumber(tracking);
       setShowOrderBanner(true);
-      // Auto-hide after 5 seconds
       setTimeout(() => setShowOrderBanner(false), 5000);
     }
   }, [searchParams]);
 
-  // Fetch data from API
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // Fetch uploaded JSON data from /api/data
+  const fetchUploadedData = useCallback(async () => {
+    const userEmail = getUserEmail();
+    const headers = { 'X-User-Email': userEmail };
+    let hasUploadedData = false;
 
+    try {
+      // Fetch all data types in parallel
+      const [ordersRes, warehousesRes, vehiclesRes, deliveriesRes, inventoryRes, teamRes] = await Promise.all([
+        fetch('/api/data?type=orders', { headers }).catch(() => null),
+        fetch('/api/data?type=warehouses', { headers }).catch(() => null),
+        fetch('/api/data?type=vehicles', { headers }).catch(() => null),
+        fetch('/api/data?type=deliveries', { headers }).catch(() => null),
+        fetch('/api/data?type=inventory', { headers }).catch(() => null),
+        fetch('/api/data?type=team', { headers }).catch(() => null),
+      ]);
+
+      // Process orders
+      if (ordersRes?.ok) {
+        const json = await ordersRes.json();
+        if (json.success && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setUploadedOrders(json.data);
+          hasUploadedData = true;
+        }
+      }
+
+      // Process warehouses
+      if (warehousesRes?.ok) {
+        const json = await warehousesRes.json();
+        if (json.success && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setUploadedWarehouses(json.data);
+          hasUploadedData = true;
+        }
+      }
+
+      // Process vehicles (fleet)
+      if (vehiclesRes?.ok) {
+        const json = await vehiclesRes.json();
+        if (json.success && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setUploadedVehicles(json.data);
+          hasUploadedData = true;
+        }
+      }
+
+      // Process deliveries
+      if (deliveriesRes?.ok) {
+        const json = await deliveriesRes.json();
+        if (json.success && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setUploadedDeliveries(json.data);
+          hasUploadedData = true;
+        }
+      }
+
+      // Process inventory
+      if (inventoryRes?.ok) {
+        const json = await inventoryRes.json();
+        if (json.success && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setUploadedInventory(json.data);
+          hasUploadedData = true;
+        }
+      }
+
+      // Process team
+      if (teamRes?.ok) {
+        const json = await teamRes.json();
+        if (json.success && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setUploadedTeam(json.data);
+          hasUploadedData = true;
+        }
+      }
+
+      setDataSource(hasUploadedData ? 'user_data' : 'none');
+
+    } catch (err) {
+      console.error('Error fetching uploaded data:', err);
+      setDataSource('none');
+    }
+  }, []);
+
+  // Fetch live data from website activity (existing API)
+  const fetchLiveData = useCallback(async () => {
     try {
       const [ordersResult, shipmentsResult, routesResult] = await Promise.all([
         ordersApi.getAll(),
@@ -92,12 +261,23 @@ export default function Dashboard() {
       if (routesResult.success) setRoutes(routesResult.data || []);
 
     } catch (err: any) {
-      console.error('Error fetching data:', err);
-      setError(err.message || 'Failed to fetch data');
-    } finally {
-      setIsLoading(false);
+      console.error('Error fetching live data:', err);
+      setError(err.message || 'Failed to fetch live data');
     }
   }, []);
+
+  // Combined fetch function
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    await Promise.all([
+      fetchUploadedData(),
+      fetchLiveData(),
+    ]);
+
+    setIsLoading(false);
+  }, [fetchUploadedData, fetchLiveData]);
 
   useEffect(() => {
     fetchData();
@@ -110,7 +290,7 @@ export default function Dashboard() {
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/light-v11',
-      center: [78.9629, 20.5937], // Center of India
+      center: [78.9629, 20.5937],
       zoom: 4.5,
     });
 
@@ -130,13 +310,10 @@ export default function Dashboard() {
 
     const mapInstance = map.current;
 
-    // Wait for map to load
     const updateMap = () => {
-      // Clear existing markers
       markersRef.current.forEach(marker => marker.remove());
       markersRef.current = [];
 
-      // Remove existing layers and sources
       ['optimized-routes', 'shipment-routes'].forEach(id => {
         if (mapInstance.getLayer(id)) mapInstance.removeLayer(id);
         if (mapInstance.getSource(id)) mapInstance.removeSource(id);
@@ -173,9 +350,7 @@ export default function Dashboard() {
           },
         });
 
-        // Add route endpoint markers
         routes.forEach(route => {
-          // Origin marker (green)
           const originEl = document.createElement('div');
           originEl.className = 'w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow';
           const originMarker = new mapboxgl.Marker(originEl)
@@ -184,7 +359,6 @@ export default function Dashboard() {
             .addTo(mapInstance);
           markersRef.current.push(originMarker);
 
-          // Destination marker (red)
           const destEl = document.createElement('div');
           destEl.className = 'w-3 h-3 bg-red-500 rounded-full border-2 border-white shadow';
           const destMarker = new mapboxgl.Marker(destEl)
@@ -199,10 +373,7 @@ export default function Dashboard() {
       if (showShipments && shipments.length > 0) {
         const shipmentFeatures = shipments.map(shipment => ({
           type: 'Feature' as const,
-          properties: { 
-            id: shipment.id,
-            status: shipment.status,
-          },
+          properties: { id: shipment.id, status: shipment.status },
           geometry: {
             type: 'LineString' as const,
             coordinates: shipment.route?.coordinates?.map(c => [c.lng, c.lat]) || [
@@ -228,9 +399,7 @@ export default function Dashboard() {
           },
         });
 
-        // Add truck markers
         shipments.forEach(shipment => {
-          // Truck marker
           const truckEl = document.createElement('div');
           truckEl.innerHTML = `
             <div class="relative cursor-pointer">
@@ -257,7 +426,6 @@ export default function Dashboard() {
             .addTo(mapInstance);
           markersRef.current.push(truckMarker);
 
-          // Origin marker
           const originEl = document.createElement('div');
           originEl.className = 'w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow';
           const originMarker = new mapboxgl.Marker(originEl)
@@ -265,13 +433,43 @@ export default function Dashboard() {
             .addTo(mapInstance);
           markersRef.current.push(originMarker);
 
-          // Destination marker
           const destEl = document.createElement('div');
           destEl.className = 'w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow';
           const destMarker = new mapboxgl.Marker(destEl)
             .setLngLat([shipment.destination.lng, shipment.destination.lat])
             .addTo(mapInstance);
           markersRef.current.push(destMarker);
+        });
+      }
+
+      // Add warehouse markers from uploaded data
+      if (uploadedWarehouses.length > 0) {
+        uploadedWarehouses.forEach(warehouse => {
+          // Only add if warehouse has coordinates
+          const lat = (warehouse as any).latitude;
+          const lng = (warehouse as any).longitude;
+          if (lat && lng) {
+            const warehouseEl = document.createElement('div');
+            warehouseEl.innerHTML = `
+              <div class="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center shadow-lg border-2 border-white cursor-pointer">
+                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                </svg>
+              </div>
+            `;
+            
+            const warehouseMarker = new mapboxgl.Marker(warehouseEl)
+              .setLngLat([lng, lat])
+              .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`
+                <div class="p-2">
+                  <b>${warehouse.name}</b><br/>
+                  <span class="text-sm">${warehouse.city}</span><br/>
+                  <span class="text-xs text-gray-500">Capacity: ${warehouse.currentUtilization}/${warehouse.capacity}</span>
+                </div>
+              `))
+              .addTo(mapInstance);
+            markersRef.current.push(warehouseMarker);
+          }
         });
       }
     };
@@ -281,9 +479,9 @@ export default function Dashboard() {
     } else {
       mapInstance.on('load', updateMap);
     }
-  }, [routes, shipments, showRoutes, showShipments]);
+  }, [routes, shipments, showRoutes, showShipments, uploadedWarehouses]);
 
-  // Simulate shipment movement (update every 10 seconds)
+  // Simulate shipment movement
   useEffect(() => {
     if (shipments.length === 0) return;
 
@@ -302,7 +500,6 @@ export default function Dashboard() {
           newStatus = 'in_transit';
         }
 
-        // Calculate new position
         const route = shipment.route?.coordinates;
         let newLat = shipment.currentLocation.lat;
         let newLng = shipment.currentLocation.lng;
@@ -312,12 +509,10 @@ export default function Dashboard() {
           newLat = route[index].lat;
           newLng = route[index].lng;
         } else {
-          // Interpolate between origin and destination
           newLat = shipment.origin.lat + (shipment.destination.lat - shipment.origin.lat) * (newProgress / 100);
           newLng = shipment.origin.lng + (shipment.destination.lng - shipment.origin.lng) * (newProgress / 100);
         }
 
-        // Update in database
         await shipmentsApi.update(shipment.id, {
           progress: Math.round(newProgress),
           status: newStatus,
@@ -326,22 +521,64 @@ export default function Dashboard() {
         });
       }
 
-      // Refresh data
       fetchData();
     }, 10000);
 
     return () => clearInterval(interval);
   }, [shipments, fetchData]);
 
-  // Stats
-  const stats = {
-    totalOrders: orders.length,
-    activeShipments: shipments.filter(s => s.status !== 'delivered').length,
-    optimizedRoutes: routes.length,
-    avgSavings: routes.length > 0 
-      ? Math.round(routes.reduce((sum, r) => sum + parseInt(r.savings || '0'), 0) / routes.length) 
-      : 0,
-  };
+  // ============================================================================
+  // CALCULATE COMBINED STATS (Uploaded Base Data + Live Website Activity)
+  // ============================================================================
+  
+  // Total Orders = Uploaded orders + Live orders (placed through website)
+  const totalOrders = uploadedOrders.length + orders.length;
+  
+  // Active Shipments = Uploaded deliveries (in_transit) + Live shipments
+  const uploadedActiveDeliveries = uploadedDeliveries.filter(d => 
+    d.status === 'in_transit' || d.status === 'delivering' || d.status === 'picking_up'
+  ).length;
+  const liveActiveShipments = shipments.filter(s => s.status !== 'delivered').length;
+  const totalActiveShipments = uploadedActiveDeliveries + liveActiveShipments;
+  
+  // Optimized Routes (from live data)
+  const totalOptimizedRoutes = routes.length;
+  
+  // Average Savings
+  const avgSavings = routes.length > 0 
+    ? Math.round(routes.reduce((sum, r) => sum + parseInt(r.savings || '0'), 0) / routes.length) 
+    : 0;
+
+  // Additional stats from uploaded data
+  const totalWarehouses = uploadedWarehouses.length;
+  const operationalWarehouses = uploadedWarehouses.filter(w => w.status === 'operational').length;
+  
+  const totalVehicles = uploadedVehicles.length;
+  const activeVehicles = uploadedVehicles.filter(v => 
+    v.status === 'active' || v.status === 'in_transit' || v.status === 'on_route'
+  ).length;
+  
+  const totalInventoryItems = uploadedInventory.length;
+  const lowStockItems = uploadedInventory.filter(i => 
+    i.currentStock <= i.reorderLevel
+  ).length;
+  
+  const totalTeamMembers = uploadedTeam.length;
+  const activeTeamMembers = uploadedTeam.filter(t => t.status === 'active').length;
+
+  // Revenue from uploaded orders
+  const uploadedRevenue = uploadedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const liveRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+  const totalRevenue = uploadedRevenue + liveRevenue;
+
+  // Pending orders
+  const uploadedPendingOrders = uploadedOrders.filter(o => 
+    o.status === 'pending' || o.status === 'processing' || o.status === 'confirmed'
+  ).length;
+  const livePendingOrders = orders.filter(o => 
+    o.status === 'pending' || o.status === 'processing' || o.status === 'confirmed'
+  ).length;
+  const totalPendingOrders = uploadedPendingOrders + livePendingOrders;
 
   return (
     <div className="p-6 space-y-6">
@@ -363,12 +600,34 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Data Source Banner */}
+      <div className={`p-3 rounded-lg flex items-center gap-3 ${
+        dataSource === 'user_data' 
+          ? 'bg-green-50 border border-green-200' 
+          : 'bg-yellow-50 border border-yellow-200'
+      }`}>
+        <Database className={`w-5 h-5 ${dataSource === 'user_data' ? 'text-green-600' : 'text-yellow-600'}`} />
+        <div className="flex-1">
+          <p className={`text-sm font-medium ${dataSource === 'user_data' ? 'text-green-800' : 'text-yellow-800'}`}>
+            {dataSource === 'user_data' 
+              ? `Dashboard showing your uploaded data + live activity`
+              : 'No data uploaded. Upload JSON files in Settings → Data Management to see your data here.'
+            }
+          </p>
+          {dataSource === 'user_data' && (
+            <p className="text-xs text-green-600 mt-1">
+              Base: {uploadedOrders.length} orders, {uploadedWarehouses.length} warehouses, {uploadedVehicles.length} vehicles, {uploadedInventory.length} inventory items
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground">
-            Real-time shipment tracking and route overview
+            Real-time shipment tracking and supply chain overview
           </p>
         </div>
         <Button variant="outline" onClick={fetchData} disabled={isLoading}>
@@ -387,7 +646,7 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Stats Cards */}
+      {/* Primary Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 flex items-center gap-4">
@@ -396,7 +655,12 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Orders</p>
-              <p className="text-2xl font-bold">{stats.totalOrders}</p>
+              <p className="text-2xl font-bold">{totalOrders}</p>
+              {(uploadedOrders.length > 0 || orders.length > 0) && (
+                <p className="text-xs text-muted-foreground">
+                  {uploadedOrders.length} base + {orders.length} new
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -407,7 +671,12 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Active Shipments</p>
-              <p className="text-2xl font-bold">{stats.activeShipments}</p>
+              <p className="text-2xl font-bold">{totalActiveShipments}</p>
+              {(uploadedActiveDeliveries > 0 || liveActiveShipments > 0) && (
+                <p className="text-xs text-muted-foreground">
+                  {uploadedActiveDeliveries} base + {liveActiveShipments} live
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -418,7 +687,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Optimized Routes</p>
-              <p className="text-2xl font-bold">{stats.optimizedRoutes}</p>
+              <p className="text-2xl font-bold">{totalOptimizedRoutes}</p>
             </div>
           </CardContent>
         </Card>
@@ -429,11 +698,75 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Avg. Savings</p>
-              <p className="text-2xl font-bold">{stats.avgSavings}%</p>
+              <p className="text-2xl font-bold">{avgSavings}%</p>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Secondary Stats Cards (from uploaded data) */}
+      {dataSource === 'user_data' && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 bg-indigo-100 rounded-full">
+                <Warehouse className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Warehouses</p>
+                <p className="text-lg font-bold">{operationalWarehouses}/{totalWarehouses}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 bg-cyan-100 rounded-full">
+                <Truck className="w-5 h-5 text-cyan-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Fleet</p>
+                <p className="text-lg font-bold">{activeVehicles}/{totalVehicles}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 bg-orange-100 rounded-full">
+                <Package className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Inventory</p>
+                <p className="text-lg font-bold">{totalInventoryItems}</p>
+                {lowStockItems > 0 && (
+                  <p className="text-xs text-red-500">{lowStockItems} low stock</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 bg-pink-100 rounded-full">
+                <Users className="w-5 h-5 text-pink-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Team</p>
+                <p className="text-lg font-bold">{activeTeamMembers}/{totalTeamMembers}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 rounded-full">
+                <DollarSign className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Revenue</p>
+                <p className="text-lg font-bold">₹{(totalRevenue / 1000).toFixed(0)}K</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -473,8 +806,7 @@ export default function Dashboard() {
           <CardContent>
             <div ref={mapContainer} className="w-full h-[500px] rounded-lg overflow-hidden" />
             
-            {/* Map Legend */}
-            <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
+            <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                 Origin
@@ -487,6 +819,12 @@ export default function Dashboard() {
                 <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
                 Truck
               </span>
+              {uploadedWarehouses.length > 0 && (
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-purple-600 rounded"></div>
+                  Warehouse
+                </span>
+              )}
               <span className="flex items-center gap-1">
                 <div className="w-4 h-1 bg-green-500 rounded border-dashed"></div>
                 Optimized Route
@@ -512,56 +850,87 @@ export default function Dashboard() {
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
-            ) : shipments.length === 0 ? (
+            ) : shipments.length === 0 && uploadedDeliveries.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Truck className="w-12 h-12 mx-auto mb-2 opacity-50" />
                 <p>No active shipments</p>
-                <p className="text-sm">Place an order to see shipments here</p>
+                <p className="text-sm">Place an order or upload deliveries.json to see shipments</p>
               </div>
             ) : (
-              shipments.map((shipment) => (
-                <div 
-                  key={shipment.id}
-                  className={`p-4 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                    selectedShipment?.id === shipment.id ? 'ring-2 ring-blue-500' : ''
-                  }`}
-                  onClick={() => setSelectedShipment(shipment)}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="font-medium">{shipment.vehicleNumber}</p>
-                      <p className="text-sm text-muted-foreground">{shipment.driverName}</p>
+              <>
+                {/* Live shipments */}
+                {shipments.map((shipment) => (
+                  <div 
+                    key={shipment.id}
+                    className={`p-4 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
+                      selectedShipment?.id === shipment.id ? 'ring-2 ring-blue-500' : ''
+                    }`}
+                    onClick={() => setSelectedShipment(shipment)}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-medium">{shipment.vehicleNumber}</p>
+                        <p className="text-sm text-muted-foreground">{shipment.driverName}</p>
+                      </div>
+                      <Badge className={getStatusBadge(shipment.status)}>
+                        {shipment.status.replace('_', ' ')}
+                      </Badge>
                     </div>
-                    <Badge className={getStatusBadge(shipment.status)}>
-                      {shipment.status.replace('_', ' ')}
-                    </Badge>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 text-sm mb-3">
-                    <MapPin className="w-3 h-3 text-green-600" />
-                    <span className="truncate">{shipment.origin.name}</span>
-                    <Navigation className="w-3 h-3" />
-                    <MapPin className="w-3 h-3 text-red-600" />
-                    <span className="truncate">{shipment.destination.name}</span>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span>Progress</span>
-                      <span>{shipment.progress}%</span>
+                    
+                    <div className="flex items-center gap-2 text-sm mb-3">
+                      <MapPin className="w-3 h-3 text-green-600" />
+                      <span className="truncate">{shipment.origin.name}</span>
+                      <Navigation className="w-3 h-3" />
+                      <MapPin className="w-3 h-3 text-red-600" />
+                      <span className="truncate">{shipment.destination.name}</span>
                     </div>
-                    <Progress value={shipment.progress} className="h-2" />
-                  </div>
 
-                  <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      ETA: {shipment.eta}
-                    </span>
-                    <span>{shipment.distance || shipment.route?.distance}</span>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span>Progress</span>
+                        <span>{shipment.progress}%</span>
+                      </div>
+                      <Progress value={shipment.progress} className="h-2" />
+                    </div>
+
+                    <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        ETA: {shipment.eta}
+                      </span>
+                      <span>{shipment.distance || shipment.route?.distance}</span>
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+
+                {/* Uploaded deliveries (show as cards) */}
+                {uploadedDeliveries.filter(d => d.status !== 'delivered').map((delivery) => (
+                  <div 
+                    key={delivery.id}
+                    className="p-4 border rounded-lg bg-gray-50"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-medium">Order #{delivery.orderId}</p>
+                        <p className="text-xs text-muted-foreground">From uploaded data</p>
+                      </div>
+                      <Badge className={getStatusBadge(delivery.status)}>
+                        {delivery.status.replace('_', ' ')}
+                      </Badge>
+                    </div>
+                    
+                    {delivery.progress !== undefined && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Progress</span>
+                          <span>{delivery.progress}%</span>
+                        </div>
+                        <Progress value={delivery.progress} className="h-2" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
             )}
           </CardContent>
         </Card>
@@ -579,7 +948,6 @@ export default function Dashboard() {
 
           {selectedShipment && (
             <div className="space-y-4">
-              {/* Vehicle Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Vehicle</p>
@@ -601,7 +969,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Status */}
               <div className="flex items-center gap-4">
                 <Badge className={`${getStatusBadge(selectedShipment.status)} text-sm px-3 py-1`}>
                   {selectedShipment.status.replace('_', ' ')}
@@ -611,7 +978,6 @@ export default function Dashboard() {
                 </span>
               </div>
 
-              {/* Route Info */}
               <div className="p-4 bg-gray-50 rounded-lg space-y-2">
                 <p className="text-sm font-medium">Route Information</p>
                 <div className="flex items-center gap-2">
@@ -628,7 +994,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Progress */}
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-sm font-medium">Delivery Progress</span>
