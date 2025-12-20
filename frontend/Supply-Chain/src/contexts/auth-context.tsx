@@ -1,7 +1,11 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface User {
   id: string;
@@ -15,27 +19,16 @@ interface User {
   city?: string;
   state?: string;
   pincode?: string;
-}
-
-interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (userData: SignupData) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
-  updateUser: (userData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  avatar?: string;
 }
 
 interface SignupData {
   email: string;
   password: string;
-  firstName: string;
-  lastName: string;
+  firstName?: string;
+  lastName?: string;
   phone?: string;
-  role: string;
+  role?: string;
   company?: string;
   address?: string;
   city?: string;
@@ -43,147 +36,199 @@ interface SignupData {
   pincode?: string;
 }
 
+interface AuthResult {
+  success: boolean;
+  error?: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  signup: (data: SignupData) => Promise<AuthResult>;
+  logout: () => void;
+  updateUser: (data: Partial<User>) => void;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<AuthResult>;
+}
+
+// ============================================================================
+// CONTEXT
+// ============================================================================
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+// ============================================================================
+// PROVIDER
+// ============================================================================
 
-// Public routes that don't require authentication
-const publicRoutes = ['/', '/login', '/signup', '/forgot-password'];
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname();
 
-  const isAuthenticated = !!user && !!token;
-
-  // Helper function to store user and token
-  const setLocalUser = useCallback((userData: User, authToken: string) => {
-    setUser(userData);
-    setToken(authToken);
-    localStorage.setItem('authToken', authToken);
-    localStorage.setItem('user', JSON.stringify(userData));
-  }, []);
-
-  // Check authentication status on mount
+  // Load user from localStorage on mount
   useEffect(() => {
-    const checkAuth = async () => {
-      const storedToken = localStorage.getItem('authToken');
-      const storedUser = localStorage.getItem('user');
-
-      if (storedToken && storedUser) {
-        try {
-          const parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
-          setToken(storedToken);
-        } catch (error) {
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('user');
+    const loadUser = () => {
+      try {
+        const storedUser = localStorage.getItem('user');
+        const storedToken = localStorage.getItem('token');
+        
+        if (storedUser && storedToken) {
+          setUser(JSON.parse(storedUser));
         }
+      } catch (error) {
+        console.error('Error loading user:', error);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     };
 
-    checkAuth();
+    loadUser();
   }, []);
 
-  // Handle routing based on auth state
-  useEffect(() => {
-    if (isLoading) return;
+  // ============================================================================
+  // LOGIN
+  // ============================================================================
 
-    const isPublicRoute = publicRoutes.includes(pathname);
-
-    if (!isAuthenticated && !isPublicRoute) {
-      router.push('/login');
-    } else if (isAuthenticated && (pathname === '/login' || pathname === '/signup' || pathname === '/')) {
-      router.push('/dashboard');
-    }
-  }, [isAuthenticated, isLoading, pathname, router]);
-
-  // Login function
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, password: string): Promise<AuthResult> => {
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      console.log('Attempting login for:', email);
+      
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
+      console.log('Login response:', data);
 
-      if (response.ok && data.success && data.user && data.token) {
-        setLocalUser(data.user, data.token);
+      if (data.success && data.user) {
+        // Store user and token
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('token', data.token || 'authenticated');
+        
+        setUser(data.user);
+        
+        // Redirect to dashboard
         router.push('/dashboard');
+        
         return { success: true };
+      } else {
+        return { 
+          success: false, 
+          error: data.error || 'Invalid email or password' 
+        };
       }
-
-      return { success: false, error: data.error || 'Login failed' };
-
     } catch (error) {
       console.error('Login error:', error);
-      return { success: false, error: 'Network error. Please check your connection.' };
+      return { 
+        success: false, 
+        error: 'Unable to connect to server. Please try again.' 
+      };
     }
   };
 
-  // Signup function
-  const signup = async (userData: SignupData): Promise<{ success: boolean; error?: string }> => {
+  // ============================================================================
+  // SIGNUP
+  // ============================================================================
+
+  const signup = async (data: SignupData): Promise<AuthResult> => {
     try {
-      const response = await fetch(`${API_URL}/api/auth/signup`, {
+      console.log('Attempting signup for:', data.email);
+      
+      const response = await fetch('/api/auth/signup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
+          phone: data.phone || '',
+          role: data.role || 'user',
+          company: data.company || '',
+          address: data.address || '',
+          city: data.city || '',
+          state: data.state || '',
+          pincode: data.pincode || '',
+        }),
       });
 
-      const data = await response.json();
+      const result = await response.json();
+      console.log('Signup response:', result);
 
-      if (response.ok && data.success && data.user && data.token) {
-        setLocalUser(data.user, data.token);
+      if (result.success && result.user) {
+        // Store user and token
+        localStorage.setItem('user', JSON.stringify(result.user));
+        localStorage.setItem('token', result.token || 'authenticated');
+        
+        setUser(result.user);
+        
+        // Redirect to dashboard
         router.push('/dashboard');
+        
         return { success: true };
+      } else {
+        return { 
+          success: false, 
+          error: result.error || 'Signup failed. Please try again.' 
+        };
       }
-
-      return { success: false, error: data.error || 'Signup failed' };
-
     } catch (error) {
       console.error('Signup error:', error);
-      return { success: false, error: 'Network error. Please check your connection.' };
+      return { 
+        success: false, 
+        error: 'Unable to connect to server. Please try again.' 
+      };
     }
   };
 
-  // Logout function
-  const logout = useCallback(() => {
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem('authToken');
+  // ============================================================================
+  // LOGOUT
+  // ============================================================================
+
+  const logout = () => {
     localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    setUser(null);
     router.push('/login');
-  }, [router]);
-
-  // Update user function
-  const updateUser = async (userData: Partial<User>): Promise<{ success: boolean; error?: string }> => {
-    if (!user) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    const updatedUser = { ...user, ...userData };
-    setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-    return { success: true };
   };
 
-  // Change password function - NEW
-  const changePassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> => {
-    if (!user) {
+  // ============================================================================
+  // UPDATE USER
+  // ============================================================================
+
+  const updateUser = (data: Partial<User>) => {
+    if (user) {
+      const updatedUser = { ...user, ...data };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+    }
+  };
+
+  // ============================================================================
+  // CHANGE PASSWORD
+  // ============================================================================
+
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<AuthResult> => {
+    if (!user?.email) {
       return { success: false, error: 'Not authenticated' };
     }
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+      const response = await fetch('/api/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           email: user.email,
           currentPassword,
@@ -193,34 +238,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (data.success) {
         return { success: true };
+      } else {
+        return { 
+          success: false, 
+          error: data.error || 'Failed to change password' 
+        };
       }
-
-      return { success: false, error: data.error || 'Failed to change password' };
-
     } catch (error) {
       console.error('Change password error:', error);
-      return { success: false, error: 'Network error. Please check your connection.' };
+      return { 
+        success: false, 
+        error: 'Unable to connect to server. Please try again.' 
+      };
     }
   };
 
+  // ============================================================================
+  // CONTEXT VALUE
+  // ============================================================================
+
+  const value: AuthContextType = {
+    user,
+    isLoading,
+    isAuthenticated: !!user,
+    login,
+    signup,
+    logout,
+    updateUser,
+    changePassword,
+  };
+
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      token, 
-      isLoading, 
-      isAuthenticated, 
-      login, 
-      signup, 
-      logout, 
-      updateUser,
-      changePassword 
-    }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
 }
+
+// ============================================================================
+// HOOK
+// ============================================================================
 
 export function useAuth() {
   const context = useContext(AuthContext);
@@ -229,3 +288,9 @@ export function useAuth() {
   }
   return context;
 }
+
+// ============================================================================
+// DEFAULT EXPORT
+// ============================================================================
+
+export default AuthContext;

@@ -4,7 +4,6 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
 import crypto from 'crypto';
 
 // ============================================================================
@@ -13,17 +12,24 @@ import crypto from 'crypto';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://supplychainuser:vQKnELrP9zskcONMdFq2OK3vahcy1Rt0@dpg-d4vpefumcj7s73drp540-a.oregon-postgres.render.com/supplychaindb_wpdq';
 
-let pool: Pool | null = null;
+let pool: any = null;
 
-function getPool(): Pool {
+async function getPool() {
   if (!pool) {
-    pool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
+    try {
+      const { Pool } = await import('pg');
+      pool = new Pool({
+        connectionString: DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+      });
+      console.log('Login: Database pool created');
+    } catch (error) {
+      console.error('Failed to create pool:', error);
+      throw error;
+    }
   }
   return pool;
 }
@@ -54,7 +60,8 @@ function verifyPassword(password: string, storedHash: string): boolean {
 // Generate a simple token
 function generateToken(userId: number, email: string): string {
   const payload = `${userId}:${email}:${Date.now()}`;
-  const hash = crypto.createHash('sha256').update(payload + (process.env.JWT_SECRET || 'supply-chain-secret')).digest('hex');
+  const secret = process.env.JWT_SECRET || 'supply-chain-secret-key-2024';
+  const hash = crypto.createHash('sha256').update(payload + secret).digest('hex');
   return `${Buffer.from(payload).toString('base64')}.${hash}`;
 }
 
@@ -92,11 +99,15 @@ async function ensureTablesExist(client: any) {
 // ============================================================================
 
 export async function POST(request: NextRequest) {
+  console.log('=== LOGIN REQUEST RECEIVED ===');
+  
   let client = null;
   
   try {
     const body = await request.json();
     const { email, password } = body;
+
+    console.log('Login attempt for:', email);
 
     // Validation
     if (!email || !password) {
@@ -106,16 +117,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('Login attempt for:', email);
-
     // Connect to database
-    const dbPool = getPool();
+    console.log('Connecting to database...');
+    const dbPool = await getPool();
     client = await dbPool.connect();
+    console.log('Database connected');
     
     // Ensure tables exist
     await ensureTablesExist(client);
 
     // Find user by email
+    console.log('Finding user...');
     const result = await client.query(
       `SELECT id, email, password, first_name, last_name, phone, role, company, address, city, state, pincode, is_active
        FROM users 
@@ -132,6 +144,7 @@ export async function POST(request: NextRequest) {
     }
 
     const user = result.rows[0];
+    console.log('User found:', user.id);
 
     // Check if account is active
     if (user.is_active === false) {
@@ -142,6 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify password
+    console.log('Verifying password...');
     if (!verifyPassword(password, user.password)) {
       console.log('Invalid password for:', email);
       return NextResponse.json(
@@ -149,6 +163,8 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    console.log('Password verified');
 
     // Update last login
     await client.query(
@@ -181,7 +197,9 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Login error:', error);
+    console.error('=== LOGIN ERROR ===');
+    console.error('Error:', error.message);
+    
     return NextResponse.json(
       { 
         success: false, 
@@ -194,9 +212,22 @@ export async function POST(request: NextRequest) {
     if (client) {
       try {
         client.release();
+        console.log('Database connection released');
       } catch (e) {
         console.error('Error releasing client:', e);
       }
     }
   }
+}
+
+// ============================================================================
+// GET HANDLER - For testing
+// ============================================================================
+
+export async function GET() {
+  return NextResponse.json({
+    message: 'Login API is working',
+    method: 'POST',
+    requiredFields: ['email', 'password'],
+  });
 }
