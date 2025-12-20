@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { inventoryApi, warehouseApi, Product, Warehouse } from '@/lib/api';
 import {
   Package,
   Search,
@@ -19,16 +18,98 @@ import {
   ArrowUpDown,
   CheckCircle,
   XCircle,
+  Database,
 } from 'lucide-react';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface Product {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  quantityInStock: number;
+  currentStock?: number;
+  unitPrice: number;
+  price?: number;
+  reorderLevel: number;
+  reorderPoint?: number;
+  description?: string;
+  warehouseId?: string;
+  supplier?: string;
+  lastRestocked?: string;
+  expiryDate?: string;
+  avgDailySales?: number;
+}
+
+interface Warehouse {
+  id: string;
+  name: string;
+  city?: string;
+}
 
 type SortField = 'name' | 'sku' | 'category' | 'quantityInStock' | 'unitPrice';
 type SortOrder = 'asc' | 'desc';
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function getUserEmail(): string {
+  if (typeof window === 'undefined') return 'demo@example.com';
+  try {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      return user.email || 'demo@example.com';
+    }
+  } catch {}
+  return 'demo@example.com';
+}
+
+// Normalize product data from different formats
+function normalizeProduct(item: any, index: number): Product {
+  return {
+    id: item.id || `PROD-${String(index + 1).padStart(3, '0')}`,
+    name: item.name || item.productName || 'Unknown Product',
+    sku: item.sku || `SKU-${index + 1}`,
+    category: item.category || 'General',
+    quantityInStock: parseInt(item.quantityInStock || item.currentStock || item.stock) || 0,
+    unitPrice: parseFloat(item.unitPrice || item.price) || 0,
+    reorderLevel: parseInt(item.reorderLevel || item.reorderPoint) || 50,
+    description: item.description || '',
+    warehouseId: item.warehouseId || '',
+    supplier: item.supplier || '',
+    lastRestocked: item.lastRestocked || '',
+    expiryDate: item.expiryDate || '',
+    avgDailySales: parseInt(item.avgDailySales) || 0,
+  };
+}
+
+// ============================================================================
+// DEMO DATA (fallback when no data uploaded)
+// ============================================================================
+
+const DEMO_PRODUCTS: Product[] = [
+  { id: 'DEMO-001', name: 'Organic Wheat Flour', sku: 'WF-001', category: 'Grains', quantityInStock: 250, unitPrice: 65, reorderLevel: 100 },
+  { id: 'DEMO-002', name: 'Basmati Rice Premium', sku: 'BR-002', category: 'Rice', quantityInStock: 180, unitPrice: 120, reorderLevel: 80 },
+  { id: 'DEMO-003', name: 'Refined Sunflower Oil', sku: 'SO-003', category: 'Oils', quantityInStock: 120, unitPrice: 185, reorderLevel: 50 },
+  { id: 'DEMO-004', name: 'Toor Dal', sku: 'TD-004', category: 'Pulses', quantityInStock: 300, unitPrice: 145, reorderLevel: 120 },
+  { id: 'DEMO-005', name: 'Sugar Crystal', sku: 'SC-005', category: 'Sweeteners', quantityInStock: 85, unitPrice: 48, reorderLevel: 60 },
+];
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 export default function InventoryPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<string>('loading');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [stockFilter, setStockFilter] = useState<string>('all');
@@ -40,7 +121,6 @@ export default function InventoryPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form state for add/edit
   const [formData, setFormData] = useState({
     sku: '',
     name: '',
@@ -52,20 +132,61 @@ export default function InventoryPage() {
     warehouseId: '',
   });
 
+  // ============================================================================
+  // FETCH DATA - Now fetches from /api/data endpoint (uploaded JSON)
+  // ============================================================================
+
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
+    const userEmail = getUserEmail();
+
     try {
-      const [productsData, warehousesData] = await Promise.all([
-        inventoryApi.getAll(),
-        warehouseApi.getAll(),
-      ]);
-      setProducts(productsData);
-      setWarehouses(warehousesData);
+      // Fetch inventory from unified data API (uploaded JSON)
+      const inventoryRes = await fetch('/api/data?type=inventory', {
+        headers: { 'X-User-Email': userEmail }
+      });
+
+      let productData: Product[] = [];
+      let source = 'demo';
+
+      if (inventoryRes.ok) {
+        const inventoryJson = await inventoryRes.json();
+        console.log('Inventory API response:', inventoryJson);
+
+        if (inventoryJson.success && inventoryJson.data && Array.isArray(inventoryJson.data) && inventoryJson.data.length > 0) {
+          productData = inventoryJson.data.map((item: any, index: number) => normalizeProduct(item, index));
+          source = inventoryJson.source || 'user_data';
+        }
+      }
+
+      // If no uploaded data, use demo data
+      if (productData.length === 0) {
+        productData = DEMO_PRODUCTS;
+        source = 'demo';
+      }
+
+      setProducts(productData);
+      setDataSource(source);
+
+      // Fetch warehouses
+      const warehousesRes = await fetch('/api/warehouses?forSelection=true', {
+        headers: { 'X-User-Email': userEmail }
+      });
+
+      if (warehousesRes.ok) {
+        const warehousesJson = await warehousesRes.json();
+        if (warehousesJson.success && warehousesJson.data) {
+          setWarehouses(warehousesJson.data);
+        }
+      }
+
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch inventory data');
       console.error('Error fetching inventory:', err);
+      setError(err.message || 'Failed to fetch inventory data');
+      setProducts(DEMO_PRODUCTS);
+      setDataSource('demo');
     } finally {
       setIsLoading(false);
     }
@@ -113,15 +234,52 @@ export default function InventoryPage() {
     }
   };
 
+  // ============================================================================
+  // CRUD OPERATIONS - Save to /api/data endpoint
+  // ============================================================================
+
+  const saveInventoryToApi = async (updatedProducts: Product[]) => {
+    try {
+      await fetch('/api/data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': getUserEmail(),
+        },
+        body: JSON.stringify({
+          type: 'inventory',
+          data: updatedProducts,
+        }),
+      });
+    } catch (err) {
+      console.error('Error saving inventory:', err);
+    }
+  };
+
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const newProduct = await inventoryApi.create(formData);
-      setProducts([...products, newProduct]);
+      const newProduct: Product = {
+        id: `PROD-${Date.now()}`,
+        sku: formData.sku,
+        name: formData.name,
+        description: formData.description,
+        category: formData.category,
+        unitPrice: formData.unitPrice,
+        quantityInStock: formData.quantityInStock,
+        reorderLevel: formData.reorderLevel,
+        warehouseId: formData.warehouseId,
+      };
+
+      const updatedProducts = [...products, newProduct];
+      setProducts(updatedProducts);
+      await saveInventoryToApi(updatedProducts);
+      
       setShowAddModal(false);
       resetForm();
+      setDataSource('user_data');
     } catch (err: any) {
       setError(err.message || 'Failed to add product');
     } finally {
@@ -135,8 +293,22 @@ export default function InventoryPage() {
     setIsSubmitting(true);
 
     try {
-      const updatedProduct = await inventoryApi.update(selectedProduct.id, formData);
-      setProducts(products.map(p => (p.id === selectedProduct.id ? updatedProduct : p)));
+      const updatedProduct: Product = {
+        ...selectedProduct,
+        sku: formData.sku,
+        name: formData.name,
+        description: formData.description,
+        category: formData.category,
+        unitPrice: formData.unitPrice,
+        quantityInStock: formData.quantityInStock,
+        reorderLevel: formData.reorderLevel,
+        warehouseId: formData.warehouseId,
+      };
+
+      const updatedProducts = products.map(p => (p.id === selectedProduct.id ? updatedProduct : p));
+      setProducts(updatedProducts);
+      await saveInventoryToApi(updatedProducts);
+      
       setShowEditModal(false);
       setSelectedProduct(null);
       resetForm();
@@ -152,8 +324,10 @@ export default function InventoryPage() {
     setIsSubmitting(true);
 
     try {
-      await inventoryApi.delete(selectedProduct.id);
-      setProducts(products.filter(p => p.id !== selectedProduct.id));
+      const updatedProducts = products.filter(p => p.id !== selectedProduct.id);
+      setProducts(updatedProducts);
+      await saveInventoryToApi(updatedProducts);
+      
       setShowDeleteModal(false);
       setSelectedProduct(null);
     } catch (err: any) {
@@ -173,7 +347,7 @@ export default function InventoryPage() {
       unitPrice: product.unitPrice,
       quantityInStock: product.quantityInStock,
       reorderLevel: product.reorderLevel,
-      warehouseId: product.warehouseId,
+      warehouseId: product.warehouseId || '',
     });
     setShowEditModal(true);
   };
@@ -278,6 +452,23 @@ export default function InventoryPage() {
             <Plus className="w-4 h-4" />
             Add Product
           </button>
+        </div>
+      </div>
+
+      {/* Data Source Banner */}
+      <div className={`mb-6 p-3 rounded-lg flex items-center gap-3 ${
+        dataSource === 'demo' 
+          ? 'bg-yellow-50 border border-yellow-200' 
+          : 'bg-green-50 border border-green-200'
+      }`}>
+        <Database className={`w-5 h-5 ${dataSource === 'demo' ? 'text-yellow-600' : 'text-green-600'}`} />
+        <div>
+          <p className={`text-sm font-medium ${dataSource === 'demo' ? 'text-yellow-800' : 'text-green-800'}`}>
+            {dataSource === 'demo' 
+              ? 'Showing demo data. Upload inventory.json in Settings → Data Management to see your data.'
+              : `Loaded ${products.length} products from your uploaded data (${dataSource})`
+            }
+          </p>
         </div>
       </div>
 
@@ -581,7 +772,6 @@ export default function InventoryPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
                   <select
-                    required
                     value={formData.warehouseId}
                     onChange={e => setFormData({ ...formData, warehouseId: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -706,11 +896,11 @@ export default function InventoryPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
                   <select
-                    required
                     value={formData.warehouseId}
                     onChange={e => setFormData({ ...formData, warehouseId: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
+                    <option value="">Select warehouse</option>
                     {warehouses.map(wh => (
                       <option key={wh.id} value={wh.id}>
                         {wh.name}
