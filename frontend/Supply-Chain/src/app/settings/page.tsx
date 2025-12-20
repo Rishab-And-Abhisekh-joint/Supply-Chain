@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { 
-  User, Bell, Shield, Database, 
+  User, Bell, Shield, Database, Wallet,
   Palette, Globe, Save, ChevronRight, Check,
   Upload, Download, RefreshCw, Eye, EyeOff,
   Smartphone, Mail, AlertTriangle, Loader2,
@@ -142,18 +142,13 @@ export default function SettingsPage() {
   const [verificationCode, setVerificationCode] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ============================================================================
-  // LOAD SETTINGS FROM API (PostgreSQL)
-  // ============================================================================
-  
+  // Load settings from API
   const loadSettings = useCallback(async () => {
     setIsLoading(true);
     
     try {
       const response = await fetch('/api/settings', {
-        headers: {
-          'X-User-Email': getUserEmail(),
-        },
+        headers: { 'X-User-Email': getUserEmail() },
       });
       
       if (response.ok) {
@@ -163,7 +158,6 @@ export default function SettingsPage() {
           setDataSource(data.source || 'database');
         }
       } else {
-        // Fallback to localStorage
         const stored = localStorage.getItem('supply_chain_settings');
         if (stored) {
           setSettings(JSON.parse(stored));
@@ -172,7 +166,6 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
-      // Fallback to localStorage
       const stored = localStorage.getItem('supply_chain_settings');
       if (stored) {
         setSettings(JSON.parse(stored));
@@ -183,14 +176,9 @@ export default function SettingsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
-  // ============================================================================
-  // APPLY THEME
-  // ============================================================================
-
+  // Apply theme
   useEffect(() => {
     const root = document.documentElement;
     if (settings.appearance.theme === 'dark') {
@@ -203,10 +191,7 @@ export default function SettingsPage() {
     }
   }, [settings.appearance.theme]);
 
-  // ============================================================================
-  // SAVE SETTINGS TO API (PostgreSQL)
-  // ============================================================================
-
+  // Save settings
   const saveSettings = async (section?: string, newSettings?: AllSettings) => {
     const settingsToSave = newSettings || settings;
     setIsSaving(true);
@@ -215,28 +200,22 @@ export default function SettingsPage() {
     try {
       const response = await fetch('/api/settings', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Email': getUserEmail(),
-        },
+        headers: { 'Content-Type': 'application/json', 'X-User-Email': getUserEmail() },
         body: JSON.stringify(settingsToSave),
       });
       
       const data = await response.json();
       
       if (data.success) {
-        // Also save to localStorage as backup
         localStorage.setItem('supply_chain_settings', JSON.stringify(settingsToSave));
         setDataSource(data.source || 'database');
         setSaveStatus({ type: 'success', message: `${section || 'Settings'} saved successfully!` });
       } else {
-        // Save to localStorage as fallback
         localStorage.setItem('supply_chain_settings', JSON.stringify(settingsToSave));
         setDataSource('localStorage');
         setSaveStatus({ type: 'success', message: `${section || 'Settings'} saved locally` });
       }
     } catch (error) {
-      // Save to localStorage as fallback
       localStorage.setItem('supply_chain_settings', JSON.stringify(settingsToSave));
       setDataSource('localStorage');
       setSaveStatus({ type: 'success', message: `${section || 'Settings'} saved locally` });
@@ -246,40 +225,25 @@ export default function SettingsPage() {
     }
   };
 
-  // ============================================================================
-  // UPDATE FUNCTIONS
-  // ============================================================================
-
+  // Update functions
   const updateProfile = (field: keyof UserProfile, value: string) => {
-    setSettings(prev => ({
-      ...prev,
-      profile: { ...prev.profile, [field]: value }
-    }));
+    setSettings(prev => ({ ...prev, profile: { ...prev.profile, [field]: value } }));
   };
 
   const updateNotification = async (field: keyof NotificationSettings, value: boolean) => {
-    const newSettings = {
-      ...settings,
-      notifications: { ...settings.notifications, [field]: value }
-    };
+    const newSettings = { ...settings, notifications: { ...settings.notifications, [field]: value } };
     setSettings(newSettings);
     await saveSettings('Notification preference', newSettings);
   };
 
   const updateAppearance = async (field: keyof AppearanceSettings, value: string | boolean) => {
-    const newSettings = {
-      ...settings,
-      appearance: { ...settings.appearance, [field]: value }
-    };
+    const newSettings = { ...settings, appearance: { ...settings.appearance, [field]: value } };
     setSettings(newSettings);
     await saveSettings('Appearance', newSettings);
   };
 
   const updateRegional = (field: keyof RegionalSettings, value: string) => {
-    setSettings(prev => ({
-      ...prev,
-      regional: { ...prev.regional, [field]: value }
-    }));
+    setSettings(prev => ({ ...prev, regional: { ...prev.regional, [field]: value } }));
   };
 
   const handlePasswordChange = async () => {
@@ -293,10 +257,7 @@ export default function SettingsPage() {
     }
     
     setIsSaving(true);
-    
-    // In production, this would call an authentication API
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
     setSaveStatus({ type: 'success', message: 'Password updated successfully!' });
     setPasswords({ current: '', new: '', confirm: '' });
     setIsSaving(false);
@@ -312,14 +273,9 @@ export default function SettingsPage() {
       if (verificationCode.length === 6) {
         setIsSaving(true);
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const newSettings = {
-          ...settings,
-          security: { ...settings.security, twoFactorEnabled: true }
-        };
+        const newSettings = { ...settings, security: { ...settings.security, twoFactorEnabled: true } };
         setSettings(newSettings);
         await saveSettings('Two-factor authentication', newSettings);
-        
         setTwoFactorStep('idle');
         setVerificationCode('');
         setIsSaving(false);
@@ -331,14 +287,9 @@ export default function SettingsPage() {
 
   const disableTwoFactor = async () => {
     setIsSaving(true);
-    
-    const newSettings = {
-      ...settings,
-      security: { ...settings.security, twoFactorEnabled: false }
-    };
+    const newSettings = { ...settings, security: { ...settings.security, twoFactorEnabled: false } };
     setSettings(newSettings);
     await saveSettings('Two-factor authentication', newSettings);
-    
     setIsSaving(false);
   };
 
@@ -381,21 +332,11 @@ export default function SettingsPage() {
   const resetToDefaults = async () => {
     if (confirm('Are you sure you want to reset all settings to defaults?')) {
       try {
-        await fetch('/api/settings', {
-          method: 'DELETE',
-          headers: {
-            'X-User-Email': getUserEmail(),
-          },
-        });
-      } catch {
-        // ignore
-      }
+        await fetch('/api/settings', { method: 'DELETE', headers: { 'X-User-Email': getUserEmail() } });
+      } catch { }
       
       localStorage.removeItem('supply_chain_settings');
-      setSettings({
-        ...defaultSettings,
-        profile: { ...defaultSettings.profile, email: getUserEmail() }
-      });
+      setSettings({ ...defaultSettings, profile: { ...defaultSettings.profile, email: getUserEmail() } });
       setSaveStatus({ type: 'success', message: 'Settings reset to defaults!' });
       setTimeout(() => setSaveStatus({ type: null, message: '' }), 3000);
     }
@@ -404,7 +345,6 @@ export default function SettingsPage() {
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Limit file size to 500KB for database storage
       if (file.size > 500 * 1024) {
         setSaveStatus({ type: 'error', message: 'Image must be less than 500KB' });
         setTimeout(() => setSaveStatus({ type: null, message: '' }), 3000);
@@ -414,31 +354,22 @@ export default function SettingsPage() {
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
-        setSettings(prev => ({
-          ...prev,
-          profile: { ...prev.profile, avatar: base64 }
-        }));
+        setSettings(prev => ({ ...prev, profile: { ...prev.profile, avatar: base64 } }));
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // ============================================================================
-  // SECTIONS CONFIG
-  // ============================================================================
-
+  // Sections config - ADDED PAYMENTS SECTION
   const sections = [
     { id: 'profile', label: 'Profile', icon: User, description: 'Manage your account details' },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Configure alert preferences' },
     { id: 'security', label: 'Security', icon: Shield, description: 'Password and authentication' },
+    { id: 'payments', label: 'Payments', icon: Wallet, description: 'Payment methods & bank account', link: '/settings/payments' },
     { id: 'data', label: 'Data Management', icon: Database, description: 'Upload JSON or connect to AWS', link: '/settings/data' },
     { id: 'appearance', label: 'Appearance', icon: Palette, description: 'Theme and display settings' },
     { id: 'language', label: 'Language & Region', icon: Globe, description: 'Localization preferences' },
   ];
-
-  // ============================================================================
-  // LOADING STATE
-  // ============================================================================
 
   if (isLoading) {
     return (
@@ -451,10 +382,6 @@ export default function SettingsPage() {
     );
   }
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="mb-6">
@@ -463,35 +390,17 @@ export default function SettingsPage() {
             <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
             <p className="text-gray-500">Manage your account and preferences</p>
           </div>
-          {/* Data source indicator */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs ${
-            dataSource === 'database' 
-              ? 'bg-green-100 text-green-700' 
-              : dataSource === 'localStorage'
-              ? 'bg-yellow-100 text-yellow-700'
-              : 'bg-gray-100 text-gray-600'
+            dataSource === 'database' ? 'bg-green-100 text-green-700' : 
+            dataSource === 'localStorage' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'
           }`}>
-            {dataSource === 'database' ? (
-              <>
-                <Cloud className="w-3 h-3" />
-                Synced to cloud
-              </>
-            ) : dataSource === 'localStorage' ? (
-              <>
-                <CloudOff className="w-3 h-3" />
-                Saved locally
-              </>
-            ) : (
-              <>
-                <CloudOff className="w-3 h-3" />
-                Default settings
-              </>
-            )}
+            {dataSource === 'database' ? <><Cloud className="w-3 h-3" />Synced to cloud</> : 
+             dataSource === 'localStorage' ? <><CloudOff className="w-3 h-3" />Saved locally</> : 
+             <><CloudOff className="w-3 h-3" />Default settings</>}
           </div>
         </div>
       </div>
 
-      {/* Status Message */}
       {saveStatus.type && (
         <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 ${
           saveStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
@@ -547,37 +456,18 @@ export default function SettingsPage() {
           {/* Quick Actions */}
           <div className="mt-4 bg-white rounded-xl border shadow-sm p-4 space-y-2">
             <p className="text-sm font-medium text-gray-700 mb-3">Quick Actions</p>
-            <button
-              onClick={exportSettings}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"
-            >
-              <Download className="w-4 h-4" />
-              Export Settings
+            <button onClick={exportSettings} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg">
+              <Download className="w-4 h-4" />Export Settings
             </button>
             <label className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg cursor-pointer">
-              <Upload className="w-4 h-4" />
-              Import Settings
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                onChange={importSettings}
-                className="hidden"
-              />
+              <Upload className="w-4 h-4" />Import Settings
+              <input ref={fileInputRef} type="file" accept=".json" onChange={importSettings} className="hidden" />
             </label>
-            <button
-              onClick={loadSettings}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh from Server
+            <button onClick={loadSettings} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg">
+              <RefreshCw className="w-4 h-4" />Refresh from Server
             </button>
-            <button
-              onClick={resetToDefaults}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg"
-            >
-              <Trash2 className="w-4 h-4" />
-              Reset to Defaults
+            <button onClick={resetToDefaults} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg">
+              <Trash2 className="w-4 h-4" />Reset to Defaults
             </button>
           </div>
         </div>
@@ -586,20 +476,15 @@ export default function SettingsPage() {
         <div className="md:col-span-2">
           <div className="bg-white rounded-xl border shadow-sm p-6">
             
-            {/* PROFILE SECTION */}
+            {/* Profile Section */}
             {activeSection === 'profile' && (
               <div className="space-y-6">
                 <h2 className="text-lg font-semibold">Profile Settings</h2>
                 
-                {/* Avatar */}
                 <div className="flex items-center gap-4">
                   <div className="relative">
                     {settings.profile.avatar ? (
-                      <img 
-                        src={settings.profile.avatar} 
-                        alt="Avatar" 
-                        className="w-20 h-20 rounded-full object-cover"
-                      />
+                      <img src={settings.profile.avatar} alt="Avatar" className="w-20 h-20 rounded-full object-cover" />
                     ) : (
                       <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">
                         {settings.profile.firstName?.[0] || 'U'}{settings.profile.lastName?.[0] || ''}
@@ -616,209 +501,91 @@ export default function SettingsPage() {
                       <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
                     </label>
                     {settings.profile.avatar && (
-                      <button
-                        onClick={() => updateProfile('avatar', '')}
-                        className="ml-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg"
-                      >
+                      <button onClick={() => updateProfile('avatar', '')} className="ml-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
-                    <p className="text-xs text-gray-500 mt-1">Max 500KB, JPG or PNG</p>
                   </div>
                 </div>
 
-                {/* Form Fields */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-                    <input 
-                      type="text" 
-                      value={settings.profile.firstName}
-                      onChange={(e) => updateProfile('firstName', e.target.value)}
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                    />
+                    <input type="text" value={settings.profile.firstName} onChange={(e) => updateProfile('firstName', e.target.value)} className="w-full px-4 py-2 border rounded-lg" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                    <input 
-                      type="text" 
-                      value={settings.profile.lastName}
-                      onChange={(e) => updateProfile('lastName', e.target.value)}
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                    />
+                    <input type="text" value={settings.profile.lastName} onChange={(e) => updateProfile('lastName', e.target.value)} className="w-full px-4 py-2 border rounded-lg" />
                   </div>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <input 
-                    type="email" 
-                    value={settings.profile.email}
-                    onChange={(e) => updateProfile('email', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                  />
+                  <input type="email" value={settings.profile.email} onChange={(e) => updateProfile('email', e.target.value)} className="w-full px-4 py-2 border rounded-lg" />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input 
-                    type="tel" 
-                    value={settings.profile.phone || ''}
-                    onChange={(e) => updateProfile('phone', e.target.value)}
-                    placeholder="+91 98765 43210"
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                  />
+                  <input type="tel" value={settings.profile.phone || ''} onChange={(e) => updateProfile('phone', e.target.value)} placeholder="+91 98765 43210" className="w-full px-4 py-2 border rounded-lg" />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Company</label>
-                  <input 
-                    type="text" 
-                    value={settings.profile.company || ''}
-                    onChange={(e) => updateProfile('company', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                  />
+                  <input type="text" value={settings.profile.company || ''} onChange={(e) => updateProfile('company', e.target.value)} className="w-full px-4 py-2 border rounded-lg" />
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                  <input 
-                    type="text" 
-                    value={settings.profile.role}
-                    disabled 
-                    className="w-full px-4 py-2 border rounded-lg bg-gray-50 text-gray-500" 
-                  />
-                </div>
-                
-                <button 
-                  onClick={() => saveSettings('Profile')}
-                  disabled={isSaving}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Changes
+                <button onClick={() => saveSettings('Profile')} disabled={isSaving} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save Changes
                 </button>
               </div>
             )}
 
-            {/* NOTIFICATIONS SECTION */}
+            {/* Notifications Section */}
             {activeSection === 'notifications' && (
               <div className="space-y-6">
                 <h2 className="text-lg font-semibold">Notification Preferences</h2>
                 <p className="text-sm text-gray-500">Changes are saved automatically</p>
                 
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Smartphone className="w-5 h-5 text-gray-500" />
-                      <div>
-                        <p className="font-medium">Push Notifications</p>
-                        <p className="text-sm text-gray-500">Receive notifications in browser</p>
+                  {[
+                    { key: 'pushNotifications', icon: Smartphone, label: 'Push Notifications', desc: 'Receive notifications in browser' },
+                    { key: 'lowStockAlerts', label: 'Low Stock Alerts', desc: 'Get notified when inventory is low' },
+                    { key: 'orderUpdates', label: 'Order Updates', desc: 'Notifications for order status changes' },
+                    { key: 'deliveryAlerts', label: 'Delivery Alerts', desc: 'Track delivery progress' },
+                    { key: 'systemNotifications', label: 'System Notifications', desc: 'Important system updates' },
+                    { key: 'emailDigest', icon: Mail, label: 'Email Digest', desc: 'Daily summary via email' },
+                    { key: 'smsAlerts', icon: Smartphone, label: 'SMS Alerts', desc: 'Critical alerts via SMS' },
+                  ].map(item => (
+                    <div key={item.key} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        {item.icon && <item.icon className="w-5 h-5 text-gray-500" />}
+                        <div>
+                          <p className="font-medium">{item.label}</p>
+                          <p className="text-sm text-gray-500">{item.desc}</p>
+                        </div>
                       </div>
+                      <ToggleSwitch 
+                        checked={settings.notifications[item.key as keyof NotificationSettings]}
+                        onChange={(v) => updateNotification(item.key as keyof NotificationSettings, v)}
+                      />
                     </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.pushNotifications}
-                      onChange={(v) => updateNotification('pushNotifications', v)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="font-medium">Low Stock Alerts</p>
-                      <p className="text-sm text-gray-500">Get notified when inventory is low</p>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.lowStockAlerts}
-                      onChange={(v) => updateNotification('lowStockAlerts', v)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="font-medium">Order Updates</p>
-                      <p className="text-sm text-gray-500">Notifications for order status changes</p>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.orderUpdates}
-                      onChange={(v) => updateNotification('orderUpdates', v)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="font-medium">Delivery Alerts</p>
-                      <p className="text-sm text-gray-500">Track delivery progress</p>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.deliveryAlerts}
-                      onChange={(v) => updateNotification('deliveryAlerts', v)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="font-medium">System Notifications</p>
-                      <p className="text-sm text-gray-500">Important system updates</p>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.systemNotifications}
-                      onChange={(v) => updateNotification('systemNotifications', v)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Mail className="w-5 h-5 text-gray-500" />
-                      <div>
-                        <p className="font-medium">Email Digest</p>
-                        <p className="text-sm text-gray-500">Daily summary via email</p>
-                      </div>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.emailDigest}
-                      onChange={(v) => updateNotification('emailDigest', v)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Smartphone className="w-5 h-5 text-gray-500" />
-                      <div>
-                        <p className="font-medium">SMS Alerts</p>
-                        <p className="text-sm text-gray-500">Critical alerts via SMS</p>
-                      </div>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.notifications.smsAlerts}
-                      onChange={(v) => updateNotification('smsAlerts', v)}
-                    />
-                  </div>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* SECURITY SECTION */}
+            {/* Security Section */}
             {activeSection === 'security' && (
               <div className="space-y-6">
                 <h2 className="text-lg font-semibold">Security Settings</h2>
                 
-                {/* Change Password */}
                 <div className="space-y-4">
                   <h3 className="font-medium text-gray-700">Change Password</h3>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
                     <div className="relative">
-                      <input 
-                        type={showCurrentPassword ? 'text' : 'password'}
-                        value={passwords.current}
-                        onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg pr-10 focus:ring-2 focus:ring-blue-500" 
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
+                      <input type={showCurrentPassword ? 'text' : 'password'} value={passwords.current} onChange={(e) => setPasswords({ ...passwords, current: e.target.value })} className="w-full px-4 py-2 border rounded-lg pr-10" />
+                      <button type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                         {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
@@ -826,341 +593,121 @@ export default function SettingsPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
                     <div className="relative">
-                      <input 
-                        type={showNewPassword ? 'text' : 'password'}
-                        value={passwords.new}
-                        onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg pr-10 focus:ring-2 focus:ring-blue-500" 
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
+                      <input type={showNewPassword ? 'text' : 'password'} value={passwords.new} onChange={(e) => setPasswords({ ...passwords, new: e.target.value })} className="w-full px-4 py-2 border rounded-lg pr-10" />
+                      <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                         {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">Minimum 8 characters</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
-                    <input 
-                      type="password"
-                      value={passwords.confirm}
-                      onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" 
-                    />
+                    <input type="password" value={passwords.confirm} onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })} className="w-full px-4 py-2 border rounded-lg" />
                   </div>
-                  <button 
-                    onClick={handlePasswordChange}
-                    disabled={isSaving || !passwords.current || !passwords.new || !passwords.confirm}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
+                  <button onClick={handlePasswordChange} disabled={isSaving || !passwords.current || !passwords.new || !passwords.confirm} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                     Update Password
                   </button>
                 </div>
                 
-                {/* Two-Factor Authentication */}
                 <div className="border-t pt-6">
                   <h3 className="font-medium mb-4">Two-Factor Authentication</h3>
-                  
                   {settings.security.twoFactorEnabled ? (
-                    <div className="p-4 bg-green-50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Check className="w-5 h-5 text-green-600" />
-                          <div>
-                            <p className="font-medium text-green-800">2FA is enabled</p>
-                            <p className="text-sm text-green-600">Your account has extra security</p>
-                          </div>
+                    <div className="p-4 bg-green-50 rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Check className="w-5 h-5 text-green-600" />
+                        <div>
+                          <p className="font-medium text-green-800">2FA is enabled</p>
+                          <p className="text-sm text-green-600">Your account has extra security</p>
                         </div>
-                        <button
-                          onClick={disableTwoFactor}
-                          disabled={isSaving}
-                          className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
-                        >
-                          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Disable'}
-                        </button>
                       </div>
+                      <button onClick={disableTwoFactor} disabled={isSaving} className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg">
+                        Disable
+                      </button>
                     </div>
-                  ) : twoFactorStep === 'idle' ? (
+                  ) : (
                     <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium">Enable 2FA</p>
                         <p className="text-sm text-gray-500">Add an extra layer of security</p>
                       </div>
-                      <button 
-                        onClick={handleTwoFactorSetup}
-                        className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50"
-                      >
+                      <button onClick={handleTwoFactorSetup} className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50">
                         Setup
                       </button>
                     </div>
-                  ) : twoFactorStep === 'setup' ? (
-                    <div className="p-4 bg-blue-50 rounded-lg space-y-4">
-                      <p className="font-medium text-blue-800">Step 1: Scan QR Code</p>
-                      <div className="flex justify-center">
-                        <div className="w-48 h-48 bg-white rounded-lg flex items-center justify-center border-2 border-dashed border-blue-300">
-                          <span className="text-gray-400 text-sm text-center px-4">
-                            QR Code would appear here in production
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-sm text-blue-700 text-center">
-                        Scan this code with Google Authenticator or similar app
-                      </p>
-                      <button
-                        onClick={handleTwoFactorSetup}
-                        className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                      >
-                        Next: Enter Code
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-blue-50 rounded-lg space-y-4">
-                      <p className="font-medium text-blue-800">Step 2: Enter Verification Code</p>
-                      <input
-                        type="text"
-                        value={verificationCode}
-                        onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        placeholder="Enter 6-digit code"
-                        className="w-full px-4 py-3 text-center text-2xl tracking-widest border rounded-lg focus:ring-2 focus:ring-blue-500"
-                        maxLength={6}
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setTwoFactorStep('idle'); setVerificationCode(''); }}
-                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleTwoFactorSetup}
-                          disabled={isSaving}
-                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          {isSaving ? <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> : null}
-                          Verify & Enable
-                        </button>
-                      </div>
-                    </div>
                   )}
-                </div>
-
-                {/* Session Settings */}
-                <div className="border-t pt-6">
-                  <h3 className="font-medium mb-4">Session Settings</h3>
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="font-medium">Login Notifications</p>
-                      <p className="text-sm text-gray-500">Get notified of new logins</p>
-                    </div>
-                    <ToggleSwitch 
-                      checked={settings.security.loginNotifications}
-                      onChange={async (v) => {
-                        const newSettings = {
-                          ...settings,
-                          security: { ...settings.security, loginNotifications: v }
-                        };
-                        setSettings(newSettings);
-                        await saveSettings('Login notifications', newSettings);
-                      }}
-                    />
-                  </div>
                 </div>
               </div>
             )}
 
-            {/* APPEARANCE SECTION */}
+            {/* Appearance Section */}
             {activeSection === 'appearance' && (
               <div className="space-y-6">
                 <h2 className="text-lg font-semibold">Appearance Settings</h2>
-                <p className="text-sm text-gray-500">Changes are applied and saved automatically</p>
                 
-                {/* Theme */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">Theme</label>
                   <div className="grid grid-cols-3 gap-4">
                     {(['light', 'dark', 'system'] as const).map((theme) => (
-                      <button
-                        key={theme}
-                        onClick={() => updateAppearance('theme', theme)}
-                        className={`p-4 border-2 rounded-lg text-center transition ${
-                          settings.appearance.theme === theme 
-                            ? 'border-blue-500 bg-blue-50' 
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <div className={`w-12 h-12 rounded-lg mx-auto mb-2 ${
-                          theme === 'dark' ? 'bg-gray-800' : 
-                          theme === 'system' ? 'bg-gradient-to-r from-white to-gray-800 border' : 
-                          'bg-white border'
-                        }`} />
+                      <button key={theme} onClick={() => updateAppearance('theme', theme)} className={`p-4 border-2 rounded-lg text-center ${settings.appearance.theme === theme ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+                        <div className={`w-12 h-12 rounded-lg mx-auto mb-2 ${theme === 'dark' ? 'bg-gray-800' : theme === 'system' ? 'bg-gradient-to-r from-white to-gray-800 border' : 'bg-white border'}`} />
                         <span className="capitalize">{theme}</span>
-                        {settings.appearance.theme === theme && (
-                          <Check className="w-4 h-4 text-blue-600 mx-auto mt-1" />
-                        )}
                       </button>
                     ))}
                   </div>
                 </div>
                 
-                {/* Sidebar Style */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Sidebar Style</label>
-                  <div className="flex gap-4">
-                    <button 
-                      onClick={() => updateAppearance('sidebarStyle', 'expanded')}
-                      className={`px-4 py-2 border-2 rounded-lg ${
-                        settings.appearance.sidebarStyle === 'expanded'
-                          ? 'border-blue-500 text-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      Expanded
-                    </button>
-                    <button 
-                      onClick={() => updateAppearance('sidebarStyle', 'collapsed')}
-                      className={`px-4 py-2 border-2 rounded-lg ${
-                        settings.appearance.sidebarStyle === 'collapsed'
-                          ? 'border-blue-500 text-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      Collapsed
-                    </button>
-                  </div>
-                </div>
-
-                {/* Other Options */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div>
                       <p className="font-medium">Compact Mode</p>
                       <p className="text-sm text-gray-500">Reduce spacing and padding</p>
                     </div>
-                    <ToggleSwitch 
-                      checked={settings.appearance.compactMode}
-                      onChange={(v) => updateAppearance('compactMode', v)}
-                    />
+                    <ToggleSwitch checked={settings.appearance.compactMode} onChange={(v) => updateAppearance('compactMode', v)} />
                   </div>
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div>
                       <p className="font-medium">Animations</p>
                       <p className="text-sm text-gray-500">Enable UI animations</p>
                     </div>
-                    <ToggleSwitch 
-                      checked={settings.appearance.animationsEnabled}
-                      onChange={(v) => updateAppearance('animationsEnabled', v)}
-                    />
+                    <ToggleSwitch checked={settings.appearance.animationsEnabled} onChange={(v) => updateAppearance('animationsEnabled', v)} />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* LANGUAGE & REGION SECTION */}
+            {/* Language Section */}
             {activeSection === 'language' && (
               <div className="space-y-6">
                 <h2 className="text-lg font-semibold">Language & Region</h2>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
-                  <select 
-                    value={settings.regional.language}
-                    onChange={(e) => updateRegional('language', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
+                  <select value={settings.regional.language} onChange={(e) => updateRegional('language', e.target.value)} className="w-full px-4 py-2 border rounded-lg">
                     <option value="en-US">English (US)</option>
-                    <option value="en-GB">English (UK)</option>
                     <option value="hi-IN">Hindi</option>
                     <option value="ta-IN">Tamil</option>
-                    <option value="te-IN">Telugu</option>
-                    <option value="bn-IN">Bengali</option>
-                    <option value="mr-IN">Marathi</option>
                   </select>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-                  <select 
-                    value={settings.regional.timezone}
-                    onChange={(e) => updateRegional('timezone', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="Asia/Kolkata">Asia/Kolkata (IST, UTC+5:30)</option>
+                  <select value={settings.regional.timezone} onChange={(e) => updateRegional('timezone', e.target.value)} className="w-full px-4 py-2 border rounded-lg">
+                    <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                     <option value="UTC">UTC</option>
-                    <option value="America/New_York">America/New_York (EST)</option>
-                    <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
-                    <option value="Europe/London">Europe/London (GMT)</option>
-                    <option value="Europe/Paris">Europe/Paris (CET)</option>
-                    <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
-                    <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+                    <option value="America/New_York">America/New_York</option>
                   </select>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-                  <select 
-                    value={settings.regional.currency}
-                    onChange={(e) => updateRegional('currency', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="INR">INR (₹) - Indian Rupee</option>
-                    <option value="USD">USD ($) - US Dollar</option>
-                    <option value="EUR">EUR (€) - Euro</option>
-                    <option value="GBP">GBP (£) - British Pound</option>
-                    <option value="JPY">JPY (¥) - Japanese Yen</option>
-                    <option value="AUD">AUD ($) - Australian Dollar</option>
+                  <select value={settings.regional.currency} onChange={(e) => updateRegional('currency', e.target.value)} className="w-full px-4 py-2 border rounded-lg">
+                    <option value="INR">INR (₹)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
                   </select>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Format</label>
-                  <select 
-                    value={settings.regional.dateFormat}
-                    onChange={(e) => updateRegional('dateFormat', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="DD/MM/YYYY">DD/MM/YYYY (31/12/2024)</option>
-                    <option value="MM/DD/YYYY">MM/DD/YYYY (12/31/2024)</option>
-                    <option value="YYYY-MM-DD">YYYY-MM-DD (2024-12-31)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Number Format</label>
-                  <select 
-                    value={settings.regional.numberFormat}
-                    onChange={(e) => updateRegional('numberFormat', e.target.value)}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="en-IN">Indian (1,00,000.00)</option>
-                    <option value="en-US">US (100,000.00)</option>
-                    <option value="de-DE">German (100.000,00)</option>
-                  </select>
-                </div>
-
-                {/* Preview */}
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Preview</p>
-                  <div className="text-sm text-gray-600 space-y-1">
-                    <p>Date: {new Date().toLocaleDateString(settings.regional.language)}</p>
-                    <p>Currency: {new Intl.NumberFormat(settings.regional.numberFormat, { 
-                      style: 'currency', 
-                      currency: settings.regional.currency 
-                    }).format(123456.78)}</p>
-                    <p>Number: {new Intl.NumberFormat(settings.regional.numberFormat).format(1234567.89)}</p>
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={() => saveSettings('Regional settings')}
-                  disabled={isSaving}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Changes
+                <button onClick={() => saveSettings('Regional settings')} disabled={isSaving} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save Changes
                 </button>
               </div>
             )}
@@ -1171,25 +718,16 @@ export default function SettingsPage() {
   );
 }
 
-// ============================================================================
-// TOGGLE SWITCH COMPONENT
-// ============================================================================
-
+// Toggle Switch Component
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        checked ? 'bg-blue-600' : 'bg-gray-200'
-      }`}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-gray-200'}`}
     >
-      <span
-        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
-          checked ? 'translate-x-5' : 'translate-x-1'
-        }`}
-      />
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
     </button>
   );
 }
