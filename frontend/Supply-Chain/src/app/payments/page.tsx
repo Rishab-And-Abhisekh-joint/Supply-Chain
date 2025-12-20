@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Script from 'next/script';
+import Link from 'next/link';
 import {
   CreditCard, IndianRupee, Package, Clock, CheckCircle, XCircle,
   AlertCircle, Loader2, RefreshCw, Search, Filter, Download,
   Wallet, ArrowUpRight, ArrowDownLeft, X, Smartphone, Building2,
-  ShieldCheck, Receipt
+  ShieldCheck, Receipt, Settings
 } from 'lucide-react';
 
 // ============================================================================
@@ -145,8 +146,8 @@ export default function PaymentsPage() {
         }
       }
 
-      // Load payment history
-      const paymentsRes = await fetch('/api/payments', {
+      // Load payment history - UPDATED to use /api/auth/payments
+      const paymentsRes = await fetch('/api/auth/payments', {
         headers: { 'X-User-Email': userEmail }
       });
       
@@ -179,8 +180,8 @@ export default function PaymentsPage() {
     setError(null);
 
     try {
-      // Create order in backend
-      const res = await fetch('/api/payments', {
+      // Create order in backend - UPDATED to use /api/auth/payments
+      const res = await fetch('/api/auth/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-Email': getUserEmail() },
         body: JSON.stringify({
@@ -214,7 +215,8 @@ export default function PaymentsPage() {
         },
         handler: async function (response: any) {
           try {
-            const verifyRes = await fetch('/api/payments', {
+            // UPDATED to use /api/auth/payments
+            const verifyRes = await fetch('/api/auth/payments', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-User-Email': getUserEmail() },
               body: JSON.stringify({
@@ -264,7 +266,8 @@ export default function PaymentsPage() {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     try {
-      const res = await fetch('/api/payments', {
+      // UPDATED to use /api/auth/payments
+      const res = await fetch('/api/auth/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-Email': getUserEmail() },
         body: JSON.stringify({
@@ -278,7 +281,8 @@ export default function PaymentsPage() {
 
       const data = await res.json();
       if (data.success) {
-        await fetch('/api/payments', {
+        // UPDATED to use /api/auth/payments
+        await fetch('/api/auth/payments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-User-Email': getUserEmail() },
           body: JSON.stringify({
@@ -358,12 +362,20 @@ export default function PaymentsPage() {
             </h1>
             <p className="text-gray-500">Pay for orders and view payment history</p>
           </div>
-          <button
-            onClick={loadData}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
-          >
-            <RefreshCw className="w-4 h-4" />Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/settings/payments"
+              className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
+            >
+              <Settings className="w-4 h-4" />Payment Settings
+            </Link>
+            <button
+              onClick={loadData}
+              className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
+            >
+              <RefreshCw className="w-4 h-4" />Refresh
+            </button>
+          </div>
         </div>
 
         {/* Status Messages */}
