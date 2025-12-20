@@ -26,6 +26,7 @@ interface AuthContextType {
   signup: (userData: SignupData) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   updateUser: (userData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 interface SignupData {
@@ -44,33 +45,10 @@ interface SignupData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 // Public routes that don't require authentication
 const publicRoutes = ['/', '/login', '/signup', '/forgot-password'];
-
-// Helper to check if error indicates backend is unavailable
-function isBackendUnavailable(status: number, errorMessage?: string): boolean {
-  // Check HTTP status codes that indicate backend issues
-  if (status === 404 || status >= 500) {
-    return true;
-  }
-  // Check error message patterns that indicate route/backend issues
-  if (errorMessage) {
-    const unavailablePatterns = [
-      'route not found',
-      'not found',
-      'cannot post',
-      'cannot get',
-      'econnrefused',
-      'network error',
-      'failed to fetch',
-    ];
-    const lowerMessage = errorMessage.toLowerCase();
-    return unavailablePatterns.some(pattern => lowerMessage.includes(pattern));
-  }
-  return false;
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -81,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAuthenticated = !!user && !!token;
 
-  // Helper function to create demo/local user and store in localStorage
+  // Helper function to store user and token
   const setLocalUser = useCallback((userData: User, authToken: string) => {
     setUser(userData);
     setToken(authToken);
@@ -98,11 +76,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (storedToken && storedUser) {
         try {
           const parsedUser = JSON.parse(storedUser);
-          // For demo mode, just use stored credentials without API verification
           setUser(parsedUser);
           setToken(storedToken);
         } catch (error) {
-          // Invalid stored data, clear it
           localStorage.removeItem('authToken');
           localStorage.removeItem('user');
         }
@@ -121,157 +97,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isPublicRoute = publicRoutes.includes(pathname);
 
     if (!isAuthenticated && !isPublicRoute) {
-      router.push('/signup');
+      router.push('/login');
     } else if (isAuthenticated && (pathname === '/login' || pathname === '/signup' || pathname === '/')) {
       router.push('/dashboard');
     }
   }, [isAuthenticated, isLoading, pathname, router]);
 
-  // Demo login handler
-  const handleDemoLogin = useCallback((email: string, password: string): { success: boolean; error?: string } => {
-    if (email === 'demo@example.com' && password === 'demo123') {
-      const demoUser: User = {
-        id: 'demo-user',
-        email: 'demo@example.com',
-        firstName: 'Demo',
-        lastName: 'User',
-        role: 'admin',
-        company: 'Demo Company',
-      };
-      const demoToken = `demo-token-${Date.now()}`;
-      
-      setLocalUser(demoUser, demoToken);
-      router.push('/dashboard');
-      return { success: true };
-    }
-
-    return { 
-      success: false, 
-      error: 'Invalid credentials. Use demo@example.com / demo123 for demo access.' 
-    };
-  }, [setLocalUser, router]);
-
-  // Local signup handler
-  const handleLocalSignup = useCallback((userData: SignupData): { success: boolean; error?: string } => {
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      email: userData.email,
-      firstName: userData.firstName,
-      lastName: userData.lastName,
-      phone: userData.phone,
-      role: userData.role,
-      company: userData.company,
-      address: userData.address,
-      city: userData.city,
-      state: userData.state,
-      pincode: userData.pincode,
-    };
-    const newToken = `token-${Date.now()}`;
-    
-    setLocalUser(newUser, newToken);
-    router.push('/dashboard');
-    
-    console.log('=== LOCAL SIGNUP (Demo Mode) ===');
-    console.log('User created:', newUser.email);
-    console.log('================================');
-    
-    return { success: true };
-  }, [setLocalUser, router]);
-
+  // Login function
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
-      // Try to parse the response body
-      let responseData: any = null;
-      let errorMessage = '';
-      try {
-        const text = await response.text();
-        if (text) {
-          responseData = JSON.parse(text);
-          errorMessage = responseData?.message || responseData?.error || text;
-        }
-      } catch {
-        // Response wasn't JSON
-      }
+      const data = await response.json();
 
-      // If successful API response
-      if (response.ok && responseData?.user && responseData?.token) {
-        setLocalUser(responseData.user, responseData.token);
+      if (response.ok && data.success && data.user && data.token) {
+        setLocalUser(data.user, data.token);
         router.push('/dashboard');
         return { success: true };
       }
 
-      // Check if backend is unavailable - fall back to demo mode
-      if (isBackendUnavailable(response.status, errorMessage)) {
-        console.log('Backend unavailable, using demo mode');
-        return handleDemoLogin(email, password);
-      }
-
-      // Real authentication error from backend
-      return { success: false, error: errorMessage || 'Login failed' };
+      return { success: false, error: data.error || 'Login failed' };
 
     } catch (error) {
-      // Network error - fall back to demo mode
-      console.log('Network error, using demo mode:', error);
-      return handleDemoLogin(email, password);
+      console.error('Login error:', error);
+      return { success: false, error: 'Network error. Please check your connection.' };
     }
   };
 
+  // Signup function
   const signup = async (userData: SignupData): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch(`${API_URL}/api/auth/signup`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
       });
 
-      // Try to parse the response body
-      let responseData: any = null;
-      let errorMessage = '';
-      try {
-        const text = await response.text();
-        if (text) {
-          responseData = JSON.parse(text);
-          errorMessage = responseData?.message || responseData?.error || text;
-        }
-      } catch {
-        // Response wasn't JSON
-      }
+      const data = await response.json();
 
-      // If successful API response
-      if (response.ok && responseData?.user && responseData?.token) {
-        setLocalUser(responseData.user, responseData.token);
+      if (response.ok && data.success && data.user && data.token) {
+        setLocalUser(data.user, data.token);
         router.push('/dashboard');
         return { success: true };
       }
 
-      // Check if backend is unavailable - create local user
-      if (isBackendUnavailable(response.status, errorMessage)) {
-        console.log('Backend unavailable, creating local user');
-        return handleLocalSignup(userData);
-      }
-
-      // Real error from backend (e.g., email already exists)
-      return { success: false, error: errorMessage || 'Signup failed' };
+      return { success: false, error: data.error || 'Signup failed' };
 
     } catch (error) {
-      // Network error - create local user
-      console.log('Network error, creating local user:', error);
-      return handleLocalSignup(userData);
+      console.error('Signup error:', error);
+      return { success: false, error: 'Network error. Please check your connection.' };
     }
   };
 
+  // Logout function
   const logout = useCallback(() => {
-    // Clear local state
     setUser(null);
     setToken(null);
     localStorage.removeItem('authToken');
@@ -279,20 +162,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push('/login');
   }, [router]);
 
+  // Update user function
   const updateUser = async (userData: Partial<User>): Promise<{ success: boolean; error?: string }> => {
-    if (!user || !token) {
+    if (!user) {
       return { success: false, error: 'Not authenticated' };
     }
 
-    // For demo mode, just update locally
     const updatedUser = { ...user, ...userData };
     setUser(updatedUser);
     localStorage.setItem('user', JSON.stringify(updatedUser));
     return { success: true };
   };
 
+  // Change password function - NEW
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          currentPassword,
+          newPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        return { success: true };
+      }
+
+      return { success: false, error: data.error || 'Failed to change password' };
+
+    } catch (error) {
+      console.error('Change password error:', error);
+      return { success: false, error: 'Network error. Please check your connection.' };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, isAuthenticated, login, signup, logout, updateUser }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      isLoading, 
+      isAuthenticated, 
+      login, 
+      signup, 
+      logout, 
+      updateUser,
+      changePassword 
+    }}>
       {children}
     </AuthContext.Provider>
   );

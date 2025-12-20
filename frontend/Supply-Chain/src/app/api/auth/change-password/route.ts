@@ -1,6 +1,6 @@
 // ============================================================================
-// RESET PASSWORD API - /api/auth/reset-password/route.ts
-// Resets user password after code verification
+// CHANGE PASSWORD API - /api/auth/change-password/route.ts
+// Changes user password (requires current password verification)
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -29,16 +29,28 @@ function getPool(): Pool {
 }
 
 // ============================================================================
-// PASSWORD HASHING - PBKDF2 with SHA-512
+// PASSWORD UTILITIES
 // ============================================================================
 
 function hashPassword(password: string): string {
-  // Generate a random 32-byte salt
   const salt = crypto.randomBytes(32).toString('hex');
-  // Hash with PBKDF2: 100,000 iterations, 64-byte output, SHA-512
   const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  // Store as salt:hash
   return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  try {
+    if (storedHash.includes(':')) {
+      const [salt, hash] = storedHash.split(':');
+      if (!salt || !hash) return false;
+      
+      const verifyHash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+      return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(verifyHash, 'hex'));
+    }
+    return password === storedHash;
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================
@@ -50,95 +62,82 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json();
-    const { email, code, newPassword } = body;
+    const { email, currentPassword, newPassword } = body;
 
-    // Validate inputs
-    if (!email || !code || !newPassword) {
+    // Validation
+    if (!email || !currentPassword || !newPassword) {
       return NextResponse.json(
-        { success: false, error: 'Email, code, and new password are required' },
+        { success: false, error: 'Email, current password, and new password are required' },
         { status: 400 }
       );
     }
 
     if (newPassword.length < 6) {
       return NextResponse.json(
-        { success: false, error: 'Password must be at least 6 characters' },
+        { success: false, error: 'New password must be at least 6 characters' },
         { status: 400 }
       );
     }
 
-    console.log('Processing password reset for:', email);
+    if (currentPassword === newPassword) {
+      return NextResponse.json(
+        { success: false, error: 'New password must be different from current password' },
+        { status: 400 }
+      );
+    }
+
+    console.log('Password change attempt for:', email);
 
     // Connect to database
     const dbPool = getPool();
     client = await dbPool.connect();
 
-    // Verify the reset code
-    const codeResult = await client.query(
-      `SELECT id, user_id, email FROM password_reset_codes 
-       WHERE LOWER(email) = LOWER($1) 
-       AND code = $2 
-       AND used = FALSE 
-       AND expires_at > NOW()`,
-      [email, code]
+    // Find user
+    const result = await client.query(
+      'SELECT id, password FROM users WHERE LOWER(email) = LOWER($1)',
+      [email]
     );
 
-    if (codeResult.rows.length === 0) {
-      console.log('Invalid or expired code for:', email);
-      return NextResponse.json(
-        { success: false, error: 'Invalid or expired verification code. Please request a new code.' },
-        { status: 400 }
-      );
-    }
-
-    const resetCode = codeResult.rows[0];
-    console.log('Code verified for:', email);
-
-    // Hash the new password
-    const hashedPassword = hashPassword(newPassword);
-
-    // Update user's password
-    const updateResult = await client.query(
-      `UPDATE users 
-       SET password = $1, updated_at = NOW() 
-       WHERE LOWER(email) = LOWER($2) 
-       RETURNING id, email`,
-      [hashedPassword, email]
-    );
-
-    if (updateResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       return NextResponse.json(
         { success: false, error: 'User not found' },
         { status: 404 }
       );
     }
 
-    console.log('Password updated for:', email);
+    const user = result.rows[0];
 
-    // Mark the reset code as used
+    // Verify current password
+    if (!verifyPassword(currentPassword, user.password)) {
+      console.log('Current password incorrect for:', email);
+      return NextResponse.json(
+        { success: false, error: 'Current password is incorrect' },
+        { status: 401 }
+      );
+    }
+
+    // Hash new password
+    const hashedPassword = hashPassword(newPassword);
+
+    // Update password
     await client.query(
-      'UPDATE password_reset_codes SET used = TRUE WHERE id = $1',
-      [resetCode.id]
+      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [hashedPassword, user.id]
     );
 
-    // Clean up old codes for this user
-    await client.query(
-      `DELETE FROM password_reset_codes 
-       WHERE LOWER(email) = LOWER($1) AND (used = TRUE OR expires_at < NOW())`,
-      [email]
-    );
+    console.log('Password changed successfully for:', email);
 
     return NextResponse.json({
       success: true,
-      message: 'Password has been reset successfully. You can now sign in with your new password.',
+      message: 'Password updated successfully',
     });
 
   } catch (error: any) {
-    console.error('Reset password error:', error);
+    console.error('Change password error:', error);
     return NextResponse.json(
       { 
         success: false, 
-        error: 'Unable to reset password. Please try again.',
+        error: 'Failed to change password. Please try again.',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       },
       { status: 500 }
