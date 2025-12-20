@@ -1,150 +1,56 @@
-// app/api/db-test/route.ts
-// Test database connectivity - use this to diagnose issues
+// app/api/db-migrate/route.ts
+// Database migration - fixes table schemas
 
 import { NextRequest, NextResponse } from 'next/server';
 
-interface DbTestResults {
-  timestamp: string;
-  hasDbUrl: boolean;
-  dbUrlPrefix: string;
-  connection?: string;
-  serverTime?: string;
-  database?: string;
-  tables?: string[];
-  ordersColumns?: Array<{ column_name: string; data_type: string; is_nullable: string }>;
-  shipmentsColumns?: Array<{ column_name: string; data_type: string; is_nullable: string }>;
-  ordersCount?: number | string;
-  shipmentsCount?: number | string;
-  status?: string;
-  message?: string;
-  error?: string;
-  errorCode?: string;
-}
-
-export async function GET(request: NextRequest) {
-  const results: DbTestResults = {
-    timestamp: new Date().toISOString(),
-    hasDbUrl: !!process.env.DATABASE_URL,
-    dbUrlPrefix: process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 30) + '...' : 'NOT SET',
-  };
-
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({
-      ...results,
-      status: 'NO_DATABASE_URL',
-      message: 'DATABASE_URL environment variable is not set'
-    });
-  }
-
-  let pool = null;
-  
-  try {
-    const { Pool } = await import('pg');
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 10000,
-    });
-
-    // Test basic connection
-    const connectResult = await pool.query('SELECT NOW() as time, current_database() as db');
-    results.connection = 'SUCCESS';
-    results.serverTime = connectResult.rows[0].time;
-    results.database = connectResult.rows[0].db;
-
-    // Check if tables exist
-    const tablesResult = await pool.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      AND table_type = 'BASE TABLE'
-      ORDER BY table_name
-    `);
-    results.tables = tablesResult.rows.map((r: { table_name: string }) => r.table_name);
-
-    // Check orders table structure if it exists
-    if (results.tables && results.tables.includes('orders')) {
-      const columnsResult = await pool.query(`
-        SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns
-        WHERE table_name = 'orders'
-        ORDER BY ordinal_position
-      `);
-      results.ordersColumns = columnsResult.rows;
-    }
-
-    // Check shipments table structure if it exists
-    if (results.tables && results.tables.includes('shipments')) {
-      const columnsResult = await pool.query(`
-        SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns
-        WHERE table_name = 'shipments'
-        ORDER BY ordinal_position
-      `);
-      results.shipmentsColumns = columnsResult.rows;
-    }
-
-    // Count records
-    try {
-      const ordersCount = await pool.query('SELECT COUNT(*) FROM orders');
-      results.ordersCount = parseInt(ordersCount.rows[0].count);
-    } catch {
-      results.ordersCount = 'Table does not exist';
-    }
-
-    try {
-      const shipmentsCount = await pool.query('SELECT COUNT(*) FROM shipments');
-      results.shipmentsCount = parseInt(shipmentsCount.rows[0].count);
-    } catch {
-      results.shipmentsCount = 'Table does not exist';
-    }
-
-    await pool.end();
-    
-    return NextResponse.json({
-      ...results,
-      status: 'SUCCESS',
-      message: 'Database connection successful'
-    });
-
-  } catch (error: unknown) {
-    if (pool) {
-      try { await pool.end(); } catch { /* ignore */ }
-    }
-    
-    const pgError = error as { code?: string; message?: string };
-    
-    return NextResponse.json({
-      ...results,
-      status: 'ERROR',
-      error: pgError.message,
-      errorCode: pgError.code,
-      message: 'Database connection failed'
-    }, { status: 500 });
-  }
-}
-
-// POST to create/fix tables
 export async function POST(request: NextRequest) {
   if (!process.env.DATABASE_URL) {
     return NextResponse.json({
-      status: 'NO_DATABASE_URL',
-      message: 'DATABASE_URL environment variable is not set'
+      success: false,
+      error: 'DATABASE_URL not configured'
     }, { status: 400 });
   }
 
-  let pool = null;
   const results: string[] = [];
-  
+  let pool = null;
+
   try {
     const { Pool } = await import('pg');
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 15000,
     });
 
-    // Create orders table
+    results.push('Connected to database');
+
+    // Check current orders table structure
+    const ordersCheck = await pool.query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'orders' AND table_schema = 'public'
+    `);
+    
+    const existingColumns = ordersCheck.rows.map((r: { column_name: string }) => r.column_name);
+    results.push(`Existing orders columns: ${existingColumns.join(', ')}`);
+
+    // If orders table exists but is missing columns, we need to recreate it
+    if (existingColumns.length > 0 && !existingColumns.includes('order_number')) {
+      results.push('Orders table has wrong schema - dropping and recreating...');
+      
+      // First drop shipments (has foreign key to orders)
+      await pool.query('DROP TABLE IF EXISTS shipments CASCADE');
+      results.push('Dropped shipments table');
+      
+      // Drop orders
+      await pool.query('DROP TABLE IF EXISTS orders CASCADE');
+      results.push('Dropped orders table');
+      
+      // Drop notifications
+      await pool.query('DROP TABLE IF EXISTS notifications CASCADE');
+      results.push('Dropped notifications table');
+    }
+
+    // Create orders table with correct schema
     await pool.query(`
       CREATE TABLE IF NOT EXISTS orders (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -273,11 +179,19 @@ export async function POST(request: NextRequest) {
     `);
     results.push('Optimized routes table created/verified');
 
+    // Verify final structure
+    const finalCheck = await pool.query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'orders' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `);
+    results.push(`Final orders columns: ${finalCheck.rows.map((r: { column_name: string }) => r.column_name).join(', ')}`);
+
     await pool.end();
-    
+
     return NextResponse.json({
-      status: 'SUCCESS',
-      message: 'All tables created/verified successfully',
+      success: true,
+      message: 'Database migration completed successfully',
       results
     });
 
@@ -289,10 +203,17 @@ export async function POST(request: NextRequest) {
     const pgError = error as { code?: string; message?: string };
     
     return NextResponse.json({
-      status: 'ERROR',
+      success: false,
       error: pgError.message,
       errorCode: pgError.code,
       results
     }, { status: 500 });
   }
+}
+
+export async function GET(request: NextRequest) {
+  return NextResponse.json({
+    message: 'Send a POST request to run the migration',
+    warning: 'This will DROP and RECREATE tables if they have wrong schema!'
+  });
 }
